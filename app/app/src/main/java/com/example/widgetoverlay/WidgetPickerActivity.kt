@@ -1,14 +1,12 @@
 package com.example.widgetoverlay
 
-import android.app.Activity
-import android.appwidget.AppWidgetHost
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.graphics.drawable.Drawable
-import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.Process
@@ -25,13 +23,22 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.appcompat.app.AppCompatActivity
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.example.widgetoverlay.ui.Design
+import com.example.widgetoverlay.ui.applySystemBarsInsets
+import com.example.widgetoverlay.ui.dp
+import com.example.widgetoverlay.ui.roundedRect
+import com.example.widgetoverlay.ui.themeColor
+import com.example.widgetoverlay.ui.tonalIconButton
+import com.google.android.material.R as MaterialR
+import com.google.android.material.color.DynamicColors
 import kotlin.math.roundToInt
 
-class WidgetPickerActivity : Activity() {
+class WidgetPickerActivity : AppCompatActivity() {
     private lateinit var appWidgetManager: AppWidgetManager
-    private lateinit var widgetHost: AppWidgetHost
+    private lateinit var widgetHost: android.appwidget.AppWidgetHost
     private lateinit var recyclerView: RecyclerView
     private lateinit var searchInput: EditText
     private lateinit var emptyView: TextView
@@ -42,8 +49,9 @@ class WidgetPickerActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        DynamicColors.applyToActivityIfAvailable(this)
         appWidgetManager = AppWidgetManager.getInstance(this)
-        widgetHost = AppWidgetHost(this, HOST_ID)
+        widgetHost = android.appwidget.AppWidgetHost(this, HOST_ID)
 
         // Restore pendingWidgetId if activity was recreated
         if (savedInstanceState != null) {
@@ -78,41 +86,54 @@ class WidgetPickerActivity : Activity() {
     private fun createContentView(): View {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(getColor(R.color.md_theme_background))
+            setBackgroundColor(themeColor(MaterialR.attr.colorSurface))
         }
+        applySystemBarsInsets(root)
 
-        // Header with Material Toolbar style
+        // Header
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(8))
-            setBackgroundColor(getColor(R.color.md_theme_surface))
-            elevation = dp(2).toFloat()
+            setPadding(dp(16), dp(12), dp(12), dp(4))
         }
         header.addView(TextView(this).apply {
             text = getString(R.string.widget_picker_title)
-            setTextColor(getColor(R.color.md_theme_onSurface))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+            setTextColor(themeColor(MaterialR.attr.colorOnSurface))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
             setTypeface(null, android.graphics.Typeface.BOLD)
-        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        header.addView(closeButton())
+        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        header.addView(
+            tonalIconButton(R.drawable.ic_close, getString(R.string.close)) { finish() },
+            LinearLayout.LayoutParams(dp(40), dp(40)),
+        )
         root.addView(header, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
         ))
 
-        // Search with Material style
+        // Search bar
+        val search = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = roundedRect(
+                themeColor(MaterialR.attr.colorSurfaceContainerHigh),
+                Design.RADIUS_XLARGE,
+            )
+            setPadding(dp(16), 0, dp(16), 0)
+        }
+        search.addView(ImageView(this).apply {
+            setImageResource(R.drawable.ic_search)
+            imageTintList = ColorStateList.valueOf(
+                themeColor(MaterialR.attr.colorOnSurfaceVariant)
+            )
+        }, LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginEnd = dp(12) })
         searchInput = EditText(this).apply {
             hint = getString(R.string.widget_picker_search)
-            setTextColor(getColor(R.color.md_theme_onSurface))
-            setHintTextColor(getColor(R.color.md_theme_onSurfaceVariant))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            background = GradientDrawable().apply {
-                setColor(getColor(R.color.md_theme_surfaceVariant))
-                setStroke(dp(1), getColor(R.color.md_theme_outline))
-                cornerRadius = dp(28).toFloat()
-            }
-            setPadding(dp(16), dp(14), dp(16), dp(14))
+            setTextColor(themeColor(MaterialR.attr.colorOnSurface))
+            setHintTextColor(themeColor(MaterialR.attr.colorOnSurfaceVariant))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            background = null
+            setPadding(0, dp(14), 0, dp(14))
             imeOptions = EditorInfo.IME_ACTION_DONE
             setSingleLine(true)
             addTextChangedListener(object : TextWatcher {
@@ -129,18 +150,25 @@ class WidgetPickerActivity : Activity() {
                 } else false
             }
         }
-        root.addView(searchInput, LinearLayout.LayoutParams(
+        search.addView(searchInput, LinearLayout.LayoutParams(
+            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
+        ))
+        root.addView(search, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
-        ).apply {
-            setMargins(dp(16), dp(12), dp(16), dp(8))
-        })
+        ).apply { setMargins(dp(16), dp(12), dp(16), dp(12)) })
 
-        // List
+        // Grid
         recyclerView = RecyclerView(this).apply {
-            layoutManager = LinearLayoutManager(this@WidgetPickerActivity)
+            layoutManager = GridLayoutManager(this@WidgetPickerActivity, GRID_SPAN_COUNT).apply {
+                spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
+                    override fun getSpanSize(position: Int): Int =
+                        if (recyclerView.adapter?.getItemViewType(position) == VIEW_TYPE_HEADER)
+                            GRID_SPAN_COUNT else 1
+                }
+            }
             clipToPadding = false
-            setPadding(0, 0, 0, dp(16))
+            setPadding(dp(8), 0, dp(8), dp(16))
         }
         root.addView(recyclerView, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -150,7 +178,7 @@ class WidgetPickerActivity : Activity() {
         // Empty view
         emptyView = TextView(this).apply {
             text = getString(R.string.widget_picker_empty)
-            setTextColor(getColor(R.color.md_theme_onSurfaceVariant))
+            setTextColor(themeColor(MaterialR.attr.colorOnSurfaceVariant))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             gravity = Gravity.CENTER
             visibility = View.GONE
@@ -162,14 +190,6 @@ class WidgetPickerActivity : Activity() {
         ))
 
         return root
-    }
-
-    private fun closeButton(): ImageView = ImageView(this).apply {
-        setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
-        setColorFilter(getColor(R.color.md_theme_onSurfaceVariant))
-        setPadding(dp(8), dp(8), dp(8), dp(8))
-        contentDescription = getString(R.string.close)
-        setOnClickListener { finish() }
     }
 
     private fun loadWidgets() {
@@ -206,6 +226,7 @@ class WidgetPickerActivity : Activity() {
                         info = info,
                         label = info.loadLabel(pm) ?: info.provider.className.substringAfterLast('.'),
                         previewImage = loadPreviewSafely(info, pm),
+                        appIcon = appIcon,
                         minWidthDp = minWidth,
                         minHeightDp = minHeight,
                         minSizeCells = dpToCells(minWidth, minHeight),
@@ -424,16 +445,14 @@ class WidgetPickerActivity : Activity() {
         val info: AppWidgetProviderInfo,
         val label: String,
         val previewImage: Drawable?,
+        val appIcon: Drawable?,
         val minWidthDp: Int,
         val minHeightDp: Int,
         val minSizeCells: Pair<Int, Int>,
     )
 
-    // RecyclerView Adapter
+    // RecyclerView Adapter with app-group headers and a 2-column widget grid
     private inner class WidgetAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
-        private val VIEW_TYPE_HEADER = 0
-        private val VIEW_TYPE_WIDGET = 1
-
         private val flattenedItems: List<Any> = buildList {
             for (group in filteredGroups) {
                 add(group)
@@ -449,7 +468,7 @@ class WidgetPickerActivity : Activity() {
             return if (viewType == VIEW_TYPE_HEADER) {
                 HeaderViewHolder(createHeaderView())
             } else {
-                WidgetViewHolder(createWidgetView())
+                WidgetViewHolder(createWidgetCell(parent))
             }
         }
 
@@ -476,7 +495,7 @@ class WidgetPickerActivity : Activity() {
         }
     }
 
-    // Widget ViewHolder
+    // Widget cell ViewHolder
     private inner class WidgetViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         private val previewView: ImageView = view.findViewById(VIEW_ID_PREVIEW)
         private val nameView: TextView = view.findViewById(VIEW_ID_NAME)
@@ -484,18 +503,17 @@ class WidgetPickerActivity : Activity() {
 
         fun bind(item: WidgetItem) {
             nameView.text = item.label
+            sizeView.text = "${formatCellSize(item.minSizeCells)} (${item.minWidthDp}×${item.minHeightDp}dp)"
 
-            // Format size display with both cell size and dp
-            val cellSize = formatCellSize(item.minSizeCells)
-            sizeView.text = "$cellSize (${item.minWidthDp}×${item.minHeightDp}dp)"
-
-            if (item.previewImage != null) {
-                previewView.setImageDrawable(item.previewImage)
-                previewView.visibility = View.VISIBLE
+            val preview = item.previewImage ?: item.appIcon
+            if (preview != null) {
+                previewView.setImageDrawable(preview)
+                previewView.imageTintList = null
             } else {
-                previewView.setImageResource(android.R.drawable.ic_menu_gallery)
-                previewView.setColorFilter(getColor(R.color.md_theme_onSurfaceVariant))
-                previewView.visibility = View.VISIBLE
+                previewView.setImageResource(R.drawable.ic_apps)
+                previewView.imageTintList = ColorStateList.valueOf(
+                    themeColor(MaterialR.attr.colorOnSurfaceVariant)
+                )
             }
 
             itemView.setOnClickListener { onWidgetSelected(item.info) }
@@ -505,69 +523,77 @@ class WidgetPickerActivity : Activity() {
     private fun createHeaderView(): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(16), dp(14), dp(16), dp(6))
+        setPadding(dp(12), dp(16), dp(12), dp(8))
     }.apply {
         addView(ImageView(this@WidgetPickerActivity).apply {
             id = VIEW_ID_ICON
             scaleType = ImageView.ScaleType.FIT_CENTER
             setPadding(0, 0, dp(10), 0)
-        }, LinearLayout.LayoutParams(dp(28), dp(28)))
+        }, LinearLayout.LayoutParams(dp(24), dp(24)))
         addView(TextView(this@WidgetPickerActivity).apply {
             id = VIEW_ID_LABEL
-            setTextColor(getColor(R.color.md_theme_onSurface))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setTextColor(themeColor(MaterialR.attr.colorOnSurface))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             setTypeface(null, android.graphics.Typeface.BOLD)
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         addView(TextView(this@WidgetPickerActivity).apply {
             id = VIEW_ID_COUNT
-            setTextColor(getColor(R.color.md_theme_onSurfaceVariant))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTextColor(themeColor(MaterialR.attr.colorOnSurfaceVariant))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
         }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
         ))
     }
 
-    private fun createWidgetView(): LinearLayout = LinearLayout(this).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(24), dp(10), dp(16), dp(10))
+    private fun createWidgetCell(parent: ViewGroup): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(8), dp(8), dp(8), dp(8))
         isClickable = true
         isFocusable = true
         val outValue = TypedValue()
         theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
-        setBackgroundResource(outValue.resourceId)
-    }.apply {
+        foreground = androidx.core.content.ContextCompat.getDrawable(
+            this@WidgetPickerActivity, outValue.resourceId
+        )
+
+        // Square preview well sized to the grid span
+        val cellSize = (parent.width / GRID_SPAN_COUNT - dp(16)).coerceAtLeast(dp(96))
         addView(FrameLayout(this@WidgetPickerActivity).apply {
-            setPadding(dp(2), dp(2), dp(2), dp(2))
-            background = GradientDrawable().apply {
-                setColor(getColor(R.color.md_theme_surfaceVariant))
-                cornerRadius = dp(8).toFloat()
-            }
+            id = VIEW_ID_PREVIEW_CONTAINER
+            background = roundedRect(
+                themeColor(MaterialR.attr.colorSurfaceContainerLow),
+                Design.RADIUS_MEDIUM,
+            )
+            setPadding(dp(12), dp(12), dp(12), dp(12))
             addView(ImageView(this@WidgetPickerActivity).apply {
                 id = VIEW_ID_PREVIEW
-                scaleType = ImageView.ScaleType.CENTER_CROP
+                scaleType = ImageView.ScaleType.FIT_CENTER
             }, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
             ))
-        }, LinearLayout.LayoutParams(dp(56), dp(56)).apply {
-            marginEnd = dp(14)
-        })
-        addView(LinearLayout(this@WidgetPickerActivity).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(TextView(this@WidgetPickerActivity).apply {
-                id = VIEW_ID_NAME
-                setTextColor(getColor(R.color.md_theme_onSurface))
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            })
-            addView(TextView(this@WidgetPickerActivity).apply {
-                id = VIEW_ID_SIZE
-                setTextColor(getColor(R.color.md_theme_onSurfaceVariant))
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-                setPadding(0, dp(2), 0, 0)
-            })
-        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, cellSize))
+
+        addView(TextView(this@WidgetPickerActivity).apply {
+            id = VIEW_ID_NAME
+            setTextColor(themeColor(MaterialR.attr.colorOnSurface))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(0, dp(8), 0, 0)
+        }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+        addView(TextView(this@WidgetPickerActivity).apply {
+            id = VIEW_ID_SIZE
+            setTextColor(themeColor(MaterialR.attr.colorOnSurfaceVariant))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+        }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
     }
 
     companion object {
@@ -576,15 +602,16 @@ class WidgetPickerActivity : Activity() {
         private const val REQUEST_CONFIGURE = 2002
         private const val KEY_PENDING_WIDGET_ID = "pending_widget_id"
 
+        private const val VIEW_TYPE_HEADER = 0
+        private const val VIEW_TYPE_WIDGET = 1
+        private const val GRID_SPAN_COUNT = 2
+
         private const val VIEW_ID_ICON = 1
         private const val VIEW_ID_LABEL = 2
         private const val VIEW_ID_COUNT = 3
         private const val VIEW_ID_PREVIEW = 4
         private const val VIEW_ID_NAME = 5
         private const val VIEW_ID_SIZE = 6
-
-        fun createResultIntent(widgetId: Int): Intent = Intent().apply {
-            putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
-        }
+        private const val VIEW_ID_PREVIEW_CONTAINER = 7
     }
 }
