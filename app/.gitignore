@@ -9,3 +9,6 @@ local.properties
 
 # Generated APKs are copied to ../artifacts for delivery.
 
+
+# Kotlin build session state
+.kotlin/
