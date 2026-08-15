@@ -49,5 +49,17 @@
     <string name="widget_picker_bind_denied">위젯 추가 권한이 필요합니다.</string>
     <string name="widget_stack_count">스택: %1$d개 위젯</string>
     <string name="add_widget">위젯 추가</string>
+    <string name="widget_card_title">선택된 위젯</string>
+    <string name="display_card_title">표시 방식</string>
+    <string name="system_card_title">선택적 시스템 표면</string>
+    <string name="launcher_bubble_desc">위젯 열기</string>
+    <string name="in_app_preview_opened">앱 내부 대체 표시가 열렸습니다.</string>
+    <string name="notification_permission_required">알림 권한이 필요합니다.</string>
+    <string name="bubble_fallback_note">버블을 지원하지 않는 기기에서는 일반 알림으로 표시됩니다.</string>
+    <string name="live_update_promoted">Live Update 승격을 요청했습니다.</string>
+    <string name="live_update_downgraded">일반 ongoing 알림으로 하향됩니다.</string>
+    <string name="live_update_completed">진행 상태 알림을 완료했습니다.</string>
+    <string name="status_overlay_allowed">오버레이 권한 허용됨</string>
+    <string name="status_overlay_denied">오버레이 권한 없음</string>
+    <string name="status_pick_widget">위젯을 선택하세요</string>
 </resources>
-

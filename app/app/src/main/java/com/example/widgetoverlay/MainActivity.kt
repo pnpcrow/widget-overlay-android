@@ -4,11 +4,9 @@ import android.Manifest
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -20,6 +18,18 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
+import com.example.widgetoverlay.ui.Design
+import com.example.widgetoverlay.ui.applySystemBarsInsets
+import com.example.widgetoverlay.ui.dp
+import com.example.widgetoverlay.ui.filledButton
+import com.example.widgetoverlay.ui.materialCard
+import com.example.widgetoverlay.ui.outlinedButton
+import com.example.widgetoverlay.ui.roundedRect
+import com.example.widgetoverlay.ui.textButton
+import com.example.widgetoverlay.ui.themeColor
+import com.example.widgetoverlay.ui.tonalButton
+import com.example.widgetoverlay.ui.wormIndicator
+import com.google.android.material.R as MaterialR
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
@@ -28,9 +38,7 @@ import kotlin.math.roundToInt
 
 class MainActivity : AppCompatActivity() {
     private lateinit var widgetHost: WidgetHostController
-    private lateinit var notifier: SurfaceNotifier
     private lateinit var widgetNameText: TextView
-    private lateinit var widgetInfoText: TextView
     private lateinit var statusText: TextView
     private lateinit var previewContainer: FrameLayout
     private lateinit var overlayButtons: List<MaterialButton>
@@ -44,7 +52,6 @@ class MainActivity : AppCompatActivity() {
         DynamicColors.applyToActivityIfAvailable(this)
 
         widgetHost = WidgetHostController(this)
-        notifier = SurfaceNotifier(this)
         setContentView(createContentView())
         requestNotificationPermissionIfNeeded()
 
@@ -109,24 +116,22 @@ class MainActivity : AppCompatActivity() {
     private fun createContentView(): View {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(getColor(R.color.md_theme_background))
+            setBackgroundColor(themeColor(MaterialR.attr.colorSurface))
         }
+        applySystemBarsInsets(root)
 
         // Material Toolbar
-        val toolbar = MaterialToolbar(this).apply {
+        root.addView(MaterialToolbar(this).apply {
             title = getString(R.string.app_name)
-            setTitleTextColor(getColor(R.color.md_theme_onSurface))
-            setBackgroundColor(getColor(R.color.md_theme_surface))
-            elevation = dp(2).toFloat()
-        }
-        root.addView(toolbar, LinearLayout.LayoutParams(
+            setBackgroundColor(themeColor(MaterialR.attr.colorSurfaceContainer))
+        }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             dp(56)
         ))
 
         // Scrollable content
         val scroll = ScrollView(this).apply {
-            setBackgroundColor(getColor(R.color.md_theme_background))
+            setBackgroundColor(themeColor(MaterialR.attr.colorSurface))
         }
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -139,13 +144,10 @@ class MainActivity : AppCompatActivity() {
         // Display methods card
         content.addView(createDisplayCard(), matchWidth())
 
-        // System surfaces card
-        content.addView(createSystemCard(), matchWidth())
-
         // Status
         statusText = TextView(this).apply {
-            setTextColor(getColor(R.color.md_theme_onSurfaceVariant))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextColor(themeColor(MaterialR.attr.colorOnSurfaceVariant))
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f)
             setPadding(dp(16), dp(16), dp(16), 0)
         }
         content.addView(statusText, matchWidth())
@@ -160,58 +162,48 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun createWidgetCard(): MaterialCardView {
-        val card = createMaterialCard()
+        val card = materialCard()
         val content = cardContent()
 
         // Card header
-        content.addView(cardTitle("선택된 위젯"))
+        content.addView(cardTitle(getString(R.string.widget_card_title)))
 
-        // Widget name
+        // Widget name (follows the preview pager's current page)
         widgetNameText = TextView(this).apply {
             text = getString(R.string.no_widget)
-            setTextColor(getColor(R.color.md_theme_onSurface))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-            setPadding(0, dp(8), 0, dp(4))
+            setTextColor(themeColor(MaterialR.attr.colorOnSurface))
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 16f)
+            setPadding(0, dp(8), 0, dp(12))
         }
         content.addView(widgetNameText, matchWidth())
-
-        // Widget info
-        widgetInfoText = TextView(this).apply {
-            text = ""
-            setTextColor(getColor(R.color.md_theme_onSurfaceVariant))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            setPadding(0, 0, 0, dp(12))
-            visibility = View.GONE
-        }
-        content.addView(widgetInfoText, matchWidth())
 
         // Preview container - larger for better widget display
         previewContainer = FrameLayout(this).apply {
             minimumHeight = dp(250)
-            background = GradientDrawable().apply {
-                setColor(getColor(R.color.md_theme_surfaceVariant))
-                cornerRadius = dp(12).toFloat()
-            }
+            background = roundedRect(
+                themeColor(MaterialR.attr.colorSurfaceContainerHighest),
+                Design.RADIUS_MEDIUM,
+            )
         }
         content.addView(previewContainer, matchWidth(height = dp(280)))
 
         // Stack info
         stackCountText = TextView(this).apply {
             text = getString(R.string.widget_stack_count, widgetHost.getStackCount())
-            setTextColor(getColor(R.color.md_theme_onSurfaceVariant))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextColor(themeColor(MaterialR.attr.colorOnSurfaceVariant))
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f)
             setPadding(0, dp(4), 0, dp(8))
         }
         content.addView(stackCountText, matchWidth())
 
         // Add widget button
-        val addButton = createFilledButton(getString(R.string.add_widget)) {
+        val addButton = filledButton(getString(R.string.add_widget)) {
             widgetHost.beginWidgetPickForStack(this)
         }
         content.addView(addButton, matchWidth())
 
         // Remove current widget button
-        val removeButton = createOutlinedButton(getString(R.string.remove_widget)) {
+        val removeButton = outlinedButton(getString(R.string.remove_widget)) {
             stopOverlay()
             val stackCount = widgetHost.getStackCount()
             if (stackCount > 1) {
@@ -242,21 +234,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun createDisplayCard(): MaterialCardView {
-        val card = createMaterialCard()
+        val card = materialCard()
         val content = cardContent()
 
-        content.addView(cardTitle("표시 방식"))
+        content.addView(cardTitle(getString(R.string.display_card_title)))
 
         val hasWidget = widgetHost.hasValidWidget()
-        val overlayBtn = createFilledButton(getString(R.string.open_overlay)) { openOverlayPanel() }
-        val launcherBtn = createTonalButton(getString(R.string.show_launcher)) { showOverlayLauncher() }
-        val inAppBtn = createOutlinedButton(getString(R.string.open_in_app)) {
+        val overlayBtn = filledButton(getString(R.string.open_overlay)) { openOverlayPanel() }
+        val launcherBtn = tonalButton(getString(R.string.show_launcher)) { showOverlayLauncher() }
+        val inAppBtn = outlinedButton(getString(R.string.open_in_app)) {
             previewVisible = true
             widgetHost.startListening()
             renderInAppPreview()
-            refreshUi("앱 내부 대체 표시가 열렸습니다.")
+            refreshUi(getString(R.string.in_app_preview_opened))
         }
-        val hideBtn = createTextButton(getString(R.string.hide_overlay)) {
+        val hideBtn = textButton(getString(R.string.hide_overlay)) {
             stopOverlay()
             refreshUi(getString(R.string.overlay_hidden))
         }
@@ -273,61 +265,7 @@ class MainActivity : AppCompatActivity() {
         return card
     }
 
-    private fun createSystemCard(): MaterialCardView {
-        val card = createMaterialCard()
-        val content = cardContent()
-
-        content.addView(cardTitle("선택적 시스템 표면"))
-
-        content.addView(createTonalButton(getString(R.string.send_bubble)) {
-            if (!notifier.notificationsAllowed()) {
-                requestNotificationPermissionIfNeeded()
-                refreshUi("알림 권한이 필요합니다.")
-            } else {
-                notifier.postBubbleSummary(widgetHost.selectedWidgetLabel())
-                refreshUi("버블을 지원하지 않는 기기에서는 일반 알림으로 표시됩니다.")
-            }
-        }, matchWidth().apply { topMargin = dp(8) })
-
-        content.addView(createOutlinedButton(getString(R.string.start_live_update)) {
-            notifier.postLiveUpdate(progress = 60)
-            val route = SurfacePolicy.liveUpdateRoute(
-                Build.VERSION.SDK_INT,
-                userStartedJourney = true,
-                notificationsAllowed = notifier.notificationsAllowed(),
-            )
-            val message = if (route == SurfaceRoute.LIVE_UPDATE_NOTIFICATION) {
-                "Live Update 승격을 요청했습니다."
-            } else {
-                "일반 ongoing 알림으로 하향됩니다."
-            }
-            refreshUi(message)
-        }, matchWidth().apply { topMargin = dp(8) })
-
-        content.addView(createTextButton(getString(R.string.stop_live_update)) {
-            notifier.completeLiveUpdate()
-            refreshUi("진행 상태 알림을 완료했습니다.")
-        }, matchWidth().apply { topMargin = dp(8) })
-
-        card.addView(content)
-        return card
-    }
-
-    // --- Material Card helpers ---
-
-    private fun createMaterialCard(): MaterialCardView = MaterialCardView(this).apply {
-        layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply {
-            bottomMargin = dp(12)
-        }
-        setCardBackgroundColor(getColor(R.color.md_theme_surfaceVariant))
-        radius = dp(16).toFloat()
-        cardElevation = 0f
-        strokeColor = getColor(R.color.md_theme_outlineVariant)
-        strokeWidth = dp(1)
-    }
+    // --- Card helpers ---
 
     private fun cardContent(): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
@@ -336,59 +274,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun cardTitle(text: String): TextView = TextView(this).apply {
         this.text = text
-        setTextColor(getColor(R.color.md_theme_primary))
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        setTextColor(themeColor(MaterialR.attr.colorOnSurfaceVariant))
+        setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
         setTypeface(null, android.graphics.Typeface.BOLD)
-        letterSpacing = 0.02f
     }
-
-    // --- Material Button helpers ---
-
-    private fun createFilledButton(text: String, action: () -> Unit): MaterialButton =
-        MaterialButton(this).apply {
-            this.text = text
-            setTextColor(getColor(R.color.md_theme_onPrimary))
-            setBackgroundColor(getColor(R.color.md_theme_primary))
-            cornerRadius = dp(20)
-            textSize = 14f
-            isAllCaps = false
-            setOnClickListener { action() }
-        }
-
-    private fun createTonalButton(text: String, action: () -> Unit): MaterialButton =
-        MaterialButton(this).apply {
-            this.text = text
-            setTextColor(getColor(R.color.md_theme_onSecondaryContainer))
-            setBackgroundColor(getColor(R.color.md_theme_secondaryContainer))
-            cornerRadius = dp(20)
-            textSize = 14f
-            isAllCaps = false
-            setOnClickListener { action() }
-        }
-
-    private fun createOutlinedButton(text: String, action: () -> Unit): MaterialButton =
-        MaterialButton(this).apply {
-            this.text = text
-            setTextColor(getColor(R.color.md_theme_primary))
-            setBackgroundColor(android.graphics.Color.TRANSPARENT)
-            setStrokeColorResource(R.color.md_theme_outline)
-            strokeWidth = dp(1)
-            cornerRadius = dp(20)
-            textSize = 14f
-            isAllCaps = false
-            setOnClickListener { action() }
-        }
-
-    private fun createTextButton(text: String, action: () -> Unit): MaterialButton =
-        MaterialButton(this).apply {
-            this.text = text
-            setTextColor(getColor(R.color.md_theme_primary))
-            setBackgroundColor(android.graphics.Color.TRANSPARENT)
-            cornerRadius = dp(20)
-            textSize = 14f
-            isAllCaps = false
-            setOnClickListener { action() }
-        }
 
     // --- Overlay control ---
 
@@ -464,11 +353,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (widgetIds.isEmpty()) {
-            previewContainer.addView(TextView(this).apply {
-                text = getString(R.string.widget_not_available)
-                gravity = Gravity.CENTER
-                setTextColor(getColor(R.color.md_theme_onSurfaceVariant))
-            })
+            previewContainer.addView(unavailableWidgetText())
             return
         }
 
@@ -476,11 +361,7 @@ class MainActivity : AppCompatActivity() {
             // Single widget - show directly
             val widgetView = widgetHost.createSelectedWidgetView(widthDp = widgetWidthDp, heightDp = widgetHeightDp)
             if (widgetView == null) {
-                previewContainer.addView(TextView(this).apply {
-                    text = getString(R.string.widget_not_available)
-                    gravity = Gravity.CENTER
-                    setTextColor(getColor(R.color.md_theme_onSurfaceVariant))
-                })
+                previewContainer.addView(unavailableWidgetText())
             } else {
                 previewContainer.addView(widgetView, FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
@@ -500,46 +381,43 @@ class MainActivity : AppCompatActivity() {
                 setCurrentItem(currentPreviewPage, false)
             }
             contentLayout.addView(viewPager, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.MATCH_PARENT,
                 0, 1f
             ))
 
-            // Add page indicator dots below ViewPager
-            val indicator = LinearLayout(this).apply {
-                gravity = Gravity.CENTER
-                orientation = LinearLayout.HORIZONTAL
-                setPadding(0, dp(12), 0, dp(4))
-            }
-            for (i in widgetIds.indices) {
-                val dot = View(this).apply {
-                    layoutParams = LinearLayout.LayoutParams(dp(6), dp(6)).apply {
-                        marginStart = if (i > 0) dp(4) else 0
-                    }
-                    background = GradientDrawable().apply {
-                        shape = GradientDrawable.OVAL
-                        setColor(if (i == currentPreviewPage) getColor(R.color.md_theme_primary) else getColor(R.color.md_theme_outlineVariant))
-                    }
-                }
-                indicator.addView(dot)
-            }
+            // Page indicator below ViewPager (worm indicator follows the pager on its own)
+            val indicator = wormIndicator(viewPager)
             viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
                 override fun onPageSelected(position: Int) {
                     currentPreviewPage = position
-                    for (j in 0 until indicator.childCount) {
-                        val dot = indicator.getChildAt(j)
-                        (dot.background as? GradientDrawable)?.setColor(
-                            if (j == position) getColor(R.color.md_theme_primary) else getColor(R.color.md_theme_outlineVariant)
-                        )
+                    if (::widgetNameText.isInitialized) {
+                        widgetHost.getStackWidgetLabel(position)?.let { widgetNameText.text = it }
                     }
                 }
             })
-            contentLayout.addView(indicator)
+            contentLayout.addView(
+                indicator,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    topMargin = dp(12)
+                    bottomMargin = dp(12)
+                }
+            )
 
             previewContainer.addView(contentLayout, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT,
             ))
         }
+    }
+
+    private fun unavailableWidgetText(): TextView = TextView(this).apply {
+        text = getString(R.string.widget_not_available)
+        gravity = Gravity.CENTER
+        setTextColor(themeColor(MaterialR.attr.colorOnSurfaceVariant))
     }
 
     private fun pxToDp(px: Int): Int {
@@ -576,32 +454,38 @@ class MainActivity : AppCompatActivity() {
             }
 
             if (widgetView == null) {
-                val unavailable = TextView(this@MainActivity).apply {
-                    text = getString(R.string.widget_not_available)
-                    gravity = Gravity.CENTER
-                    setTextColor(getColor(R.color.md_theme_onSurfaceVariant))
-                }
-                frame.addView(unavailable, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+                frame.addView(
+                    unavailableWidgetText(),
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
             } else {
-                frame.addView(widgetView, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+                frame.addView(
+                    widgetView,
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
             }
         }
 
         override fun getItemCount(): Int = widgetIds.size
     }
 
+    /** Label of the widget currently shown on the preview pager (falls back to the selection). */
+    private fun currentPreviewWidgetLabel(): String? {
+        val stack = widgetHost.getWidgetStack()
+        if (stack.isEmpty()) return widgetHost.selectedWidgetLabel()
+        val index = currentPreviewPage.coerceIn(0, stack.size - 1)
+        return widgetHost.getStackWidgetLabel(index) ?: widgetHost.selectedWidgetLabel()
+    }
+
     private fun refreshUi(statusOverride: String? = null) {
         val label = widgetHost.selectedWidgetLabel()
         val hasWidget = label != null
 
-        if (hasWidget) {
-            widgetNameText.text = label
-            widgetInfoText.text = getString(R.string.widget_selected, label)
-            widgetInfoText.visibility = View.VISIBLE
-        } else {
-            widgetNameText.text = getString(R.string.no_widget)
-            widgetInfoText.visibility = View.GONE
-        }
+        widgetNameText.text = currentPreviewWidgetLabel()
+            ?: label
+            ?: getString(R.string.no_widget)
 
         if (::overlayButtons.isInitialized) {
             overlayButtons.forEach { it.isEnabled = hasWidget }
@@ -617,9 +501,9 @@ class MainActivity : AppCompatActivity() {
             overlayPermissionGranted = Settings.canDrawOverlays(this),
         )
         val surfaceDescription = when (route) {
-            SurfaceRoute.OVERLAY_WIDGET -> "오버레이 권한 허용됨"
-            SurfaceRoute.IN_APP_WIDGET -> "오버레이 권한 없음"
-            SurfaceRoute.NONE -> "위젯을 선택하세요"
+            SurfaceRoute.OVERLAY_WIDGET -> getString(R.string.status_overlay_allowed)
+            SurfaceRoute.IN_APP_WIDGET -> getString(R.string.status_overlay_denied)
+            SurfaceRoute.NONE -> getString(R.string.status_pick_widget)
             else -> ""
         }
         statusText.text = getString(R.string.status_prefix, statusOverride ?: surfaceDescription)
