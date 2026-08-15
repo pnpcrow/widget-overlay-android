@@ -1,0 +1,7 @@
+# IDE and agent session files
+.idea/
+.zcode/
+.mimocode/
+
+# Generated deliverables (APK copies from app build outputs)
+artifacts/

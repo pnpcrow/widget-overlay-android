@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- User-granted special access. Requested only when the user enables overlays. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <!-- Required to see all installed widget providers on Android 12+ -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
+    <application
+        android:name=".WidgetOverlayApplication"
+        android:allowBackup="true"
+        android:icon="@drawable/ic_widget_overlay"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.WidgetOverlay">
+
+        <activity
+            android:name=".BubbleActivity"
+            android:allowEmbedded="true"
+            android:exported="false"
+            android:resizeableActivity="true"
+            android:theme="@style/Theme.WidgetOverlay.Bubble" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".WidgetPickerActivity"
+            android:exported="false"
+            android:label="@string/widget_picker_title"
+            android:theme="@style/Theme.WidgetOverlay" />
+
+        <service
+            android:name=".OverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Shows a user-selected app widget only while a user-visible overlay is open." />
+        </service>
+    </application>
+
+</manifest>
+

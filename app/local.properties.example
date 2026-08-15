@@ -1,0 +1,3 @@
+# Copy this file to local.properties and set the absolute SDK path for your machine.
+sdk.dir=/absolute/path/to/Android/Sdk
+
