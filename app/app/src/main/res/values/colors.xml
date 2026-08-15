@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Material Design 3 Color System -->
+    <!-- Material Design 3 tonal palette (baseline, light) -->
     <color name="md_theme_primary">#6750A4</color>
     <color name="md_theme_onPrimary">#FFFFFF</color>
     <color name="md_theme_primaryContainer">#EADDFF</color>
@@ -28,20 +28,18 @@
     <color name="md_theme_surfaceVariant">#E7E0EC</color>
     <color name="md_theme_onSurfaceVariant">#49454F</color>
 
+    <color name="md_theme_surfaceDim">#DED8E1</color>
+    <color name="md_theme_surfaceBright">#FEF7FF</color>
+    <color name="md_theme_surfaceContainerLowest">#FFFFFF</color>
+    <color name="md_theme_surfaceContainerLow">#F7F2FA</color>
+    <color name="md_theme_surfaceContainer">#F3EDF7</color>
+    <color name="md_theme_surfaceContainerHigh">#ECE6F0</color>
+    <color name="md_theme_surfaceContainerHighest">#E6E0E9</color>
+
     <color name="md_theme_outline">#79747E</color>
     <color name="md_theme_outlineVariant">#CAC4D0</color>
     <color name="md_theme_inverseSurface">#322F35</color>
     <color name="md_theme_inverseOnSurface">#F5EFF7</color>
-
-    <!-- Legacy compatibility -->
-    <color name="blue_700">#6750A4</color>
-    <color name="blue_900">#21005D</color>
-    <color name="surface">#FEF7FF</color>
-    <color name="surface_variant">#E7E0EC</color>
-    <color name="on_surface">#1D1B20</color>
-    <color name="on_surface_muted">#49454F</color>
-    <color name="success">#386A20</color>
-    <color name="warning">#7C5800</color>
-    <color name="overlay_scrim">#CCFEF7FF</color>
+    <color name="md_theme_inversePrimary">#D0BCFF</color>
+    <color name="md_theme_scrim">#000000</color>
 </resources>
-
