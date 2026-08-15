@@ -11,27 +11,34 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
-import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
-import android.view.animation.DecelerateInterpolator
-import android.view.animation.OvershootInterpolator
-import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
+import com.example.widgetoverlay.ui.AppTheme
+import com.example.widgetoverlay.ui.Design
+import com.example.widgetoverlay.ui.colorWithAlpha
+import com.example.widgetoverlay.ui.dp
+import com.example.widgetoverlay.ui.roundedRect
+import com.example.widgetoverlay.ui.themeColor
+import com.example.widgetoverlay.ui.tonalIconButton
+import com.example.widgetoverlay.ui.wormIndicator
+import com.google.android.material.R as MaterialR
 import kotlin.math.roundToInt
 
 class OverlayService : Service() {
@@ -40,16 +47,29 @@ class OverlayService : Service() {
 
     private var launcherView: View? = null
     private var panelView: View? = null
+    private var scrimView: View? = null
     private var launcherParams: WindowManager.LayoutParams? = null
     private var panelParams: WindowManager.LayoutParams? = null
     private var isAnimating = false
+    private var isRefreshing = false
+    private var currentAnimator: AnimatorSet? = null
     private var viewPager: ViewPager2? = null
-    private var pageIndicator: LinearLayout? = null
+    private var pageIndicator: com.tbuonomo.viewpagerdotsindicator.WormDotsIndicator? = null
+    private var panelX = 0
+    private var panelY = 0
+
+    private val uiPrefs by lazy { getSharedPreferences("overlay_ui", Context.MODE_PRIVATE) }
+
+    /** Themed context: carries dynamic color + day/night roles into overlay views. */
+    private val uiContext: Context
+        get() = this
 
     override fun onCreate() {
         super.onCreate()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         widgetHost = WidgetHostController(this)
+        // Apply dynamic colors to this service's theme once; uiContext resolves roles from it.
+        AppTheme.themed(this)
         createNotificationChannels()
     }
 
@@ -71,10 +91,13 @@ class OverlayService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        currentAnimator?.cancel()
         removeViewSafely(panelView)
         removeViewSafely(launcherView)
+        removeViewSafely(scrimView)
         panelView = null
         launcherView = null
+        scrimView = null
         widgetHost.stopListening()
         super.onDestroy()
     }
@@ -84,87 +107,72 @@ class OverlayService : Service() {
     private fun showLauncher() {
         if (isAnimating) return
 
-        // If panel is visible, animate transition to launcher
         val currentPanel = panelView
         if (currentPanel != null) {
             animatePanelToLauncher(currentPanel)
             return
         }
-
         if (launcherView != null) return
 
-        val button = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            background = roundedDrawable(color = getColor(R.color.md_theme_primaryContainer), radiusDp = 28)
-            elevation = dp(6).toFloat()
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            contentDescription = "선택한 위젯 열기"
-            setOnClickListener { showPanel() }
-            setOnTouchListener(DragTouchListener())
-        }
-
-        // Widget icon
-        button.addView(TextView(this).apply {
-            text = "Widgets"
-            setTextColor(getColor(R.color.md_theme_onPrimaryContainer))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
-            gravity = Gravity.CENTER
-        })
-        launcherView = button
-        launcherParams = overlayParams(
-            width = dp(64),
-            height = dp(64),
-            gravity = Gravity.TOP or Gravity.START,
-            x = dp(16),
-            y = dp(180),
-        )
-
-        // Start invisible for animation
-        button.alpha = 0f
-        button.scaleX = 0.3f
-        button.scaleY = 0.3f
-        windowManager.addView(button, launcherParams)
-
-        // Animate appear: scale up + fade in
-        val scaleX = ObjectAnimator.ofFloat(button, View.SCALE_X, 0.3f, 1f)
-        val scaleY = ObjectAnimator.ofFloat(button, View.SCALE_Y, 0.3f, 1f)
-        val alpha = ObjectAnimator.ofFloat(button, View.ALPHA, 0f, 1f)
-
-        AnimatorSet().apply {
-            playTogether(scaleX, scaleY, alpha)
-            duration = ANIMATION_DURATION_MEDIUM
-            interpolator = OvershootInterpolator(1.2f)
-            addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) {
-                    isAnimating = false
-                }
-            })
-            isAnimating = true
-            start()
-        }
+        addLauncher(animate = true)
     }
 
     private fun animatePanelToLauncher(panel: View) {
         isAnimating = true
-        val scaleX = ObjectAnimator.ofFloat(panel, View.SCALE_X, 1f, 0.3f)
-        val scaleY = ObjectAnimator.ofFloat(panel, View.SCALE_Y, 1f, 0.3f)
-        val alpha = ObjectAnimator.ofFloat(panel, View.ALPHA, 1f, 0f)
-
-        AnimatorSet().apply {
-            playTogether(scaleX, scaleY, alpha)
-            duration = ANIMATION_DURATION_SHORT
-            interpolator = DecelerateInterpolator()
-            addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) {
-                    removeViewSafely(panel)
-                    panelView = null
-                    isAnimating = false
-                    showLauncher()
-                }
-            })
-            start()
+        anchorPivotToLauncher(panel)
+        animateExit(panel, toScale = 0.4f) {
+            // Detach the panel state first, then show the launcher. The faded-out panel window
+            // is removed only after the launcher's first frame so no empty frame is presented.
+            panelView = null
+            viewPager = null
+            pageIndicator = null
+            addLauncher(animate = true)
+            launcherView?.post { removeViewSafely(panel) }
+            removeScrim(animated = true)
         }
+    }
+
+    private fun addLauncher(animate: Boolean) {
+        if (launcherView != null) return
+
+        val context = uiContext
+        val button = FrameLayout(context).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(themeColor(MaterialR.attr.colorPrimaryContainer))
+            }
+            elevation = dp(6).toFloat()
+            contentDescription = getString(R.string.launcher_bubble_desc)
+            setOnClickListener { showPanel() }
+            setOnTouchListener(DragTouchListener())
+            addView(android.widget.ImageView(context).apply {
+                setImageResource(R.drawable.ic_apps)
+                imageTintList = ColorStateList.valueOf(
+                    AppTheme.color(context, MaterialR.attr.colorOnPrimaryContainer)
+                )
+            }, FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER))
+        }
+
+        // Reuse the existing params (kept up to date by drag) so the bubble reappears where
+        // the user left it instead of the hardcoded default position.
+        val params = launcherParams ?: overlayParams(
+            width = dp(BUBBLE_SIZE_DP),
+            height = dp(BUBBLE_SIZE_DP),
+            gravity = Gravity.TOP or Gravity.START,
+            x = dp(16),
+            y = dp(180),
+        ).also { launcherParams = it }
+
+        if (animate) {
+            button.alpha = 0f
+            button.scaleX = 0.4f
+            button.scaleY = 0.4f
+            isAnimating = true
+        }
+        launcherView = button
+        windowManager.addView(button, params)
+
+        if (animate) animateEnter(button, fromScale = 0.4f) else isAnimating = false
     }
 
     // --- Panel ---
@@ -172,14 +180,29 @@ class OverlayService : Service() {
     private fun showPanel() {
         if (isAnimating) return
 
-        // If launcher is visible, animate transition to panel
         val currentLauncher = launcherView
         if (currentLauncher != null) {
             animateLauncherToPanel(currentLauncher)
             return
         }
-
         if (panelView != null) return
+
+        addPanel(animate = true)
+    }
+
+    private fun animateLauncherToPanel(launcher: View) {
+        isAnimating = true
+        animateExit(launcher, toScale = 0.6f) {
+            launcherView = null
+            addPanel(animate = true)
+            panelView?.post { removeViewSafely(launcher) }
+        }
+    }
+
+    private fun addPanel(animate: Boolean) {
+        if (panelView != null) return
+
+        val context = uiContext
 
         val stack = widgetHost.getWidgetStack()
         // If stack is empty, use selected widget ID
@@ -192,129 +215,366 @@ class OverlayService : Service() {
         val hasMultipleWidgets = widgetIds.size > 1
 
         val screenWidth = screenWidthPx()
+        val screenHeight = screenHeightPx()
         val panelWidth = minOf(dp(380), screenWidth - dp(24)).coerceAtLeast(dp(260))
-        val panelHeight = minOf(dp(500), screenHeightPx() - dp(80)).coerceAtLeast(dp(280))
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(16))
-            background = roundedDrawable(getColor(R.color.md_theme_surface), 24)
+        val panelHeight = minOf(dp(520), screenHeight - dp(80)).coerceAtLeast(dp(280))
+
+        // Restore the user's last panel position, clamped to the current screen. The panel is
+        // always an absolute TOP|START window (centered coordinates on first launch) so drag
+        // math never needs a gravity conversion.
+        val savedXDp = uiPrefs.getInt(KEY_PANEL_X_DP, -1)
+        val savedYDp = uiPrefs.getInt(KEY_PANEL_Y_DP, -1)
+        val positioned = savedXDp >= 0 && savedYDp >= 0
+        panelX = if (positioned) dp(savedXDp).coerceIn(0, (screenWidth - panelWidth).coerceAtLeast(0))
+                 else (screenWidth - panelWidth) / 2
+        panelY = if (positioned) dp(savedYDp).coerceIn(0, (screenHeight - panelHeight).coerceAtLeast(0))
+                 else (screenHeight - panelHeight) / 2
+
+        // Outer container is a FrameLayout so a full-cover loading overlay can layer on top
+        // of the content and absorb events while the panel refreshes.
+        val container = FrameLayout(context).apply {
+            background = panelBackground()
             elevation = dp(16).toFloat()
         }
-
-        // Header
-        val header = LinearLayout(this).apply {
-            gravity = Gravity.CENTER_VERTICAL
-            orientation = LinearLayout.HORIZONTAL
+        val content = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(8), dp(4), dp(8), dp(12))
         }
+        container.addView(content, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
 
-        // Title
-        val title = TextView(this).apply {
-            text = getString(R.string.overlay_panel_title)
-            setTextColor(getColor(R.color.md_theme_onSurface))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-            setPadding(dp(4), 0, dp(4), 0)
-        }
-        header.addView(title, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        header.addView(headerButton(getString(R.string.refresh)) { rebuildPanel() })
-        header.addView(headerButton(getString(R.string.minimize)) { showLauncher() })
-        header.addView(headerButton(getString(R.string.close)) { showLauncher() })
-        container.addView(header)
-
-        // ViewPager2 for widget stack
-        val widgetWidthDp = pxToDp(panelWidth - dp(32))
-        val widgetHeightDp = pxToDp(panelHeight - dp(100))
-
-        viewPager = ViewPager2(this).apply {
-            adapter = WidgetPagerAdapter(widgetIds, widgetWidthDp, widgetHeightDp)
-
-            // Add page change listener for indicator
-            registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
-                override fun onPageSelected(position: Int) {
-                    updatePageIndicator(position, widgetIds.size)
+        // Drag handle: drag to move the panel, tap to minimize
+        val handle = FrameLayout(context).apply {
+            isClickable = true
+            isFocusable = true
+            contentDescription = getString(R.string.minimize)
+            setOnClickListener { showLauncher() }
+            setOnTouchListener(PanelDragTouchListener())
+            addView(View(context).apply {
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(2).toFloat()
+                    setColor(
+                        colorWithAlpha(
+                            AppTheme.color(context, MaterialR.attr.colorOnSurfaceVariant),
+                            0.38f
+                        )
+                    )
                 }
-            })
+            }, FrameLayout.LayoutParams(dp(32), dp(4), Gravity.CENTER))
         }
+        content.addView(handle, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dp(36)
+        ))
 
-        // Container for ViewPager with styling
-        val viewPagerContainer = FrameLayout(this).apply {
-            setPadding(dp(4), dp(4), dp(4), dp(4))
-            background = GradientDrawable().apply {
-                setColor(getColor(R.color.md_theme_surfaceVariant))
-                cornerRadius = dp(16).toFloat()
-                setStroke(dp(1), getColor(R.color.md_theme_outlineVariant))
-            }
-            addView(viewPager, FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            ))
+        // Header: actions aligned to the end (no title - the widget itself identifies the panel)
+        val header = LinearLayout(context).apply {
+            gravity = Gravity.CENTER_VERTICAL or Gravity.END
         }
-        container.addView(viewPagerContainer, LinearLayout.LayoutParams(
+        val refreshButton = context.tonalIconButton(R.drawable.ic_refresh, getString(R.string.refresh)) {
+            refreshPanelContent()
+        }
+        header.addView(refreshButton, LinearLayout.LayoutParams(dp(40), dp(40)).apply {
+            marginEnd = dp(4)
+        })
+        header.addView(
+            context.tonalIconButton(R.drawable.ic_remove, getString(R.string.minimize)) {
+                showLauncher()
+            },
+            LinearLayout.LayoutParams(dp(40), dp(40)),
+        )
+        content.addView(header)
+
+        // Widget frame
+        val widgetWidthDp = pxToDp(panelWidth - dp(28))
+        val widgetHeightDp = pxToDp(panelHeight - dp(144))
+
+        val pager = ViewPager2(context).apply {
+            adapter = WidgetPagerAdapter(widgetIds, widgetWidthDp, widgetHeightDp)
+        }
+        viewPager = pager
+        content.addView(FrameLayout(context).apply {
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            background = roundedRect(
+                themeColor(MaterialR.attr.colorSurfaceContainerLow),
+                Design.RADIUS_MEDIUM,
+            )
+            addView(
+                pager,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            )
+        }, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             0, 1f
-        ))
+        ).apply { topMargin = dp(12) })
 
         // Page indicator dots (only if multiple widgets)
         if (hasMultipleWidgets) {
-            pageIndicator = LinearLayout(this).apply {
-                gravity = Gravity.CENTER
-                orientation = LinearLayout.HORIZONTAL
-                setPadding(0, dp(8), 0, 0)
-            }
-            updatePageIndicator(0, widgetIds.size)
-            container.addView(pageIndicator)
+            pageIndicator = wormIndicator(pager)
+            content.addView(
+                pageIndicator,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    topMargin = dp(10)
+                }
+            )
         }
 
         panelView = container
         panelParams = overlayParams(
             width = panelWidth,
             height = panelHeight,
-            gravity = Gravity.CENTER,
-            x = 0,
-            y = 0,
+            gravity = Gravity.TOP or Gravity.START,
+            x = panelX,
+            y = panelY,
         )
 
-        // Start invisible for animation
-        container.alpha = 0f
-        container.scaleX = 0.5f
-        container.scaleY = 0.5f
+        anchorPivotToLauncher(container)
+        if (animate) {
+            container.alpha = 0f
+            container.scaleX = 0.5f
+            container.scaleY = 0.5f
+            isAnimating = true
+        }
+        addScrim(animated = animate)
         windowManager.addView(container, panelParams)
 
-        // Animate appear: scale up + fade in
-        val scaleX = ObjectAnimator.ofFloat(container, View.SCALE_X, 0.5f, 1f)
-        val scaleY = ObjectAnimator.ofFloat(container, View.SCALE_Y, 0.5f, 1f)
-        val alpha = ObjectAnimator.ofFloat(container, View.ALPHA, 0f, 1f)
+        if (animate) animateEnter(container, fromScale = 0.5f) else isAnimating = false
+    }
 
+    /**
+     * Refreshes the widget content in place: a loading overlay covers the panel (blocking
+     * input), the pager content is rebuilt without recreating the window, then the overlay
+     * clears and input resumes.
+     */
+    private fun refreshPanelContent() {
+        val panel = panelView as? FrameLayout ?: return
+        if (isRefreshing || isAnimating) return
+        isRefreshing = true
+
+        val context = uiContext
+        val loading = FrameLayout(context).apply {
+            isClickable = true
+            isFocusable = true
+            background = roundedRect(
+                colorWithAlpha(Color.BLACK, 0.32f),
+                Design.RADIUS_XLARGE,
+            )
+            addView(ProgressBar(context).apply {
+                indeterminateTintList = ColorStateList.valueOf(
+                    themeColor(MaterialR.attr.colorPrimary)
+                )
+            }, FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER))
+        }
+        panel.addView(loading, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+
+        // Rebuild after a short delay so the loading state is perceptible, then give the
+        // fresh RemoteViews a beat to render before releasing input.
+        loading.postDelayed({
+            rebuildWidgetContent()
+            loading.postDelayed({
+                if (loading.isAttachedToWindow) panel.removeView(loading)
+                isRefreshing = false
+            }, REFRESH_SETTLE_MS)
+        }, REFRESH_LOADING_MS)
+    }
+
+    /** Rebuilds the pager adapter in place; the panel window itself is never recreated. */
+    private fun rebuildWidgetContent() {
+        val pager = viewPager ?: return
+        val widthDp = pxToDp(pager.width - dp(12))
+        val heightDp = pxToDp(pager.height - dp(12))
+
+        val stack = widgetHost.getWidgetStack()
+        val widgetIds = if (stack.isEmpty()) {
+            listOfNotNull(widgetHost.selectedWidgetId())
+        } else {
+            stack
+        }
+        // A new adapter resets the pager to page 0; restore the page the user was viewing.
+        val page = pager.currentItem.coerceIn(0, (widgetIds.size - 1).coerceAtLeast(0))
+        pager.adapter = WidgetPagerAdapter(widgetIds, widthDp, heightDp)
+        pager.setCurrentItem(page, false)
+        // The worm indicator follows the pager's page-change callbacks on its own.
+    }
+
+    // --- Scrim ---
+
+    /** Full-screen translucent layer that dims whatever is behind the panel and absorbs its touches. */
+    private fun addScrim(animated: Boolean) {
+        if (scrimView != null) return
+        val scrim = View(uiContext).apply {
+            setBackgroundColor(colorWithAlpha(Color.BLACK, SCRIM_ALPHA))
+            // Tapping the scrim minimizes the panel back to the launcher bubble.
+            setOnClickListener { showLauncher() }
+        }
+        scrimView = scrim
+        val params = WindowManager.LayoutParams(
+            screenWidthPx(),
+            screenHeightPx() + statusBarInsetPx(),
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            // No FLAG_NOT_TOUCH_MODAL: the scrim must consume touches instead of passing
+            // them through to the app behind the overlay. Explicit full-display size with a
+            // negative y offset (overlay coords start below the status bar) covers the whole
+            // screen including the status and navigation bar areas.
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            title = "WidgetOverlayScrim"
+            gravity = Gravity.TOP or Gravity.START
+            x = 0
+            y = -statusBarInsetPx()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                setFitInsetsTypes(0)
+            }
+        }
+        if (animated) {
+            scrim.alpha = 0f
+            windowManager.addView(scrim, params)
+            scrim.animate().alpha(SCRIM_ALPHA).setDuration(SCRIM_DURATION).start()
+        } else {
+            windowManager.addView(scrim, params)
+        }
+    }
+
+    /**
+     * Height of the status bar. Overlay window coordinates are relative to the content frame
+     * (below the status bar), so the scrim offsets by this to reach the very top of the display.
+     */
+    private fun statusBarInsetPx(): Int {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val top = windowManager.currentWindowMetrics.windowInsets
+                .getInsets(android.view.WindowInsets.Type.statusBars()).top
+            if (top > 0) return top
+        }
+        val id = resources.getIdentifier("status_bar_height", "dimen", "android")
+        return if (id > 0) resources.getDimensionPixelSize(id) else 0
+    }
+
+    private fun removeScrim(animated: Boolean) {
+        val scrim = scrimView ?: return
+        scrimView = null
+        if (animated) {
+            scrim.animate()
+                .alpha(0f)
+                .setDuration(SCRIM_DURATION)
+                .withEndAction { removeViewSafely(scrim) }
+                .start()
+        } else {
+            removeViewSafely(scrim)
+        }
+    }
+
+    /**
+     * Frosted-panel look: near-opaque tonal surface with a hairline border. Real backdrop blur
+     * is not applied to application-overlay windows on most devices, so this is the reliable
+     * approximation.
+     */
+    private fun panelBackground(): GradientDrawable {
+        val context = uiContext
+        val surface = themeColor(MaterialR.attr.colorSurfaceContainerHigh)
+        val hairline = colorWithAlpha(
+            themeColor(MaterialR.attr.colorOnSurfaceVariant), 0.2f
+        )
+        return roundedRect(
+            colorWithAlpha(surface, 0.94f),
+            Design.RADIUS_XLARGE,
+            strokeColor = hairline,
+        )
+    }
+
+    /** Anchors the view's scale pivot to the launcher bubble so transitions read as one motion. */
+    private fun anchorPivotToLauncher(view: View) {
+        val params = launcherParams
+        val bubbleCenterX = (params?.x?.plus(dp(BUBBLE_SIZE_DP) / 2))?.toFloat()
+            ?: screenWidthPx() / 2f
+        val bubbleCenterY = (params?.y?.plus(dp(BUBBLE_SIZE_DP) / 2))?.toFloat()
+            ?: screenHeightPx() * 0.25f
+        val width = panelParams?.width ?: view.width
+        val height = panelParams?.height ?: view.height
+        view.pivotX = (bubbleCenterX - panelX).coerceIn(0f, width.toFloat())
+        view.pivotY = (bubbleCenterY - panelY).coerceIn(0f, height.toFloat())
+    }
+
+    // --- Animations ---
+
+    /**
+     * Exit animation: shrinks/fades from the view's CURRENT property values (never hardcoded
+     * starts, which snap when an interrupted press-scale is still applied) and reports whether
+     * the transition continuation should still run.
+     */
+    private fun animateExit(view: View, toScale: Float, onEnded: () -> Unit) {
+        view.animate().cancel()
+        var cancelled = false
         AnimatorSet().apply {
-            playTogether(scaleX, scaleY, alpha)
-            duration = ANIMATION_DURATION_MEDIUM
-            interpolator = DecelerateInterpolator()
+            playTogether(
+                ObjectAnimator.ofFloat(view, View.SCALE_X, view.scaleX, toScale),
+                ObjectAnimator.ofFloat(view, View.SCALE_Y, view.scaleY, toScale),
+                ObjectAnimator.ofFloat(view, View.ALPHA, view.alpha, 0f),
+            )
+            duration = Design.DURATION_SHORT
+            interpolator = Design.EASE_ACCELERATE
             addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationCancel(animation: Animator) {
+                    cancelled = true
+                }
+
                 override fun onAnimationEnd(animation: Animator) {
-                    isAnimating = false
+                    if (!cancelled) onEnded()
                 }
             })
-            isAnimating = true
+            currentAnimator = this
             start()
         }
     }
 
-    private fun updatePageIndicator(currentPage: Int, totalPages: Int) {
-        pageIndicator?.removeAllViews()
-        for (i in 0 until totalPages) {
-            val dot = View(this).apply {
-                layoutParams = LinearLayout.LayoutParams(dp(8), dp(8)).apply {
-                    marginStart = if (i > 0) dp(4) else 0
+    /** Enter animation; clears the global guard only when the whole transition chain finished. */
+    private fun animateEnter(view: View, fromScale: Float) {
+        view.scaleX = fromScale
+        view.scaleY = fromScale
+        view.alpha = 0f
+        var cancelled = false
+        AnimatorSet().apply {
+            playTogether(
+                ObjectAnimator.ofFloat(view, View.SCALE_X, fromScale, 1f),
+                ObjectAnimator.ofFloat(view, View.SCALE_Y, fromScale, 1f),
+                ObjectAnimator.ofFloat(view, View.ALPHA, 0f, 1f),
+            )
+            duration = Design.DURATION_MEDIUM
+            interpolator = Design.EASE_DECELERATE
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationCancel(animation: Animator) {
+                    cancelled = true
                 }
-                background = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL
-                    setColor(if (i == currentPage) getColor(R.color.md_theme_primary) else getColor(R.color.md_theme_outlineVariant))
+
+                override fun onAnimationEnd(animation: Animator) {
+                    if (!cancelled) {
+                        view.scaleX = 1f
+                        view.scaleY = 1f
+                        view.alpha = 1f
+                        isAnimating = false
+                    }
                 }
-            }
-            pageIndicator?.addView(dot)
+            })
+            currentAnimator = this
+            start()
         }
     }
 
-    // ViewPager2 Adapter for widget stack
+    // --- ViewPager2 Adapter for widget stack ---
+
     private inner class WidgetPagerAdapter(
         private val widgetIds: List<Int>,
         private val widgetWidthDp: Int,
@@ -337,69 +597,34 @@ class OverlayService : Service() {
             val frame = holder.frame
             frame.removeAllViews()
 
-            // Use appropriate method based on whether we're using stack or selected widget
+            val context = uiContext
             val widgetView = if (widgetIds.size == 1) {
-                // Single widget - use selected widget view
                 widgetHost.createSelectedWidgetView(widgetWidthDp, widgetHeightDp)
             } else {
-                // Multiple widgets - use stack view
                 widgetHost.createStackWidgetView(position, widgetWidthDp, widgetHeightDp)
             }
 
             if (widgetView == null) {
-                val unavailable = TextView(this@OverlayService).apply {
+                val unavailable = TextView(context).apply {
                     text = getString(R.string.widget_not_available)
                     gravity = Gravity.CENTER
-                    setTextColor(getColor(R.color.md_theme_onSurfaceVariant))
+                    setTextColor(themeColor(MaterialR.attr.colorOnSurfaceVariant))
                 }
-                frame.addView(unavailable, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+                frame.addView(
+                    unavailable,
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
             } else {
-                frame.addView(widgetView, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+                frame.addView(
+                    widgetView,
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
             }
         }
 
         override fun getItemCount(): Int = widgetIds.size
-    }
-
-    private fun animateLauncherToPanel(launcher: View) {
-        isAnimating = true
-        // Scale down launcher while fading out
-        val scaleX = ObjectAnimator.ofFloat(launcher, View.SCALE_X, 1f, 0.3f)
-        val scaleY = ObjectAnimator.ofFloat(launcher, View.SCALE_Y, 1f, 0.3f)
-        val alpha = ObjectAnimator.ofFloat(launcher, View.ALPHA, 1f, 0f)
-
-        AnimatorSet().apply {
-            playTogether(scaleX, scaleY, alpha)
-            duration = ANIMATION_DURATION_SHORT
-            interpolator = DecelerateInterpolator()
-            addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) {
-                    removeViewSafely(launcher)
-                    launcherView = null
-                    isAnimating = false
-                    showPanel()
-                }
-            })
-            start()
-        }
-    }
-
-    private fun rebuildPanel() {
-        val currentPanel = panelView ?: return
-        isAnimating = true
-
-        // Quick fade out then rebuild
-        val alpha = ObjectAnimator.ofFloat(currentPanel, View.ALPHA, 1f, 0f)
-        alpha.duration = ANIMATION_DURATION_SHORT
-        alpha.addListener(object : AnimatorListenerAdapter() {
-            override fun onAnimationEnd(animation: Animator) {
-                removeViewSafely(currentPanel)
-                panelView = null
-                isAnimating = false
-                showPanel()
-            }
-        })
-        alpha.start()
     }
 
     // --- Stop with animation ---
@@ -409,66 +634,24 @@ class OverlayService : Service() {
             stopOverlay()
             return
         }
+        removeScrim(animated = true)
 
         val currentPanel = panelView
         val currentLauncher = launcherView
-
         when {
             currentPanel != null -> {
                 isAnimating = true
-                val scaleX = ObjectAnimator.ofFloat(currentPanel, View.SCALE_X, 1f, 0.5f)
-                val scaleY = ObjectAnimator.ofFloat(currentPanel, View.SCALE_Y, 1f, 0.5f)
-                val alpha = ObjectAnimator.ofFloat(currentPanel, View.ALPHA, 1f, 0f)
-
-                AnimatorSet().apply {
-                    playTogether(scaleX, scaleY, alpha)
-                    duration = ANIMATION_DURATION_MEDIUM
-                    interpolator = DecelerateInterpolator()
-                    addListener(object : AnimatorListenerAdapter() {
-                        override fun onAnimationEnd(animation: Animator) {
-                            stopOverlay()
-                        }
-                    })
-                    start()
-                }
+                animateExit(currentPanel, toScale = 0.5f) { stopOverlay() }
             }
             currentLauncher != null -> {
                 isAnimating = true
-                val scaleX = ObjectAnimator.ofFloat(currentLauncher, View.SCALE_X, 1f, 0.3f)
-                val scaleY = ObjectAnimator.ofFloat(currentLauncher, View.SCALE_Y, 1f, 0.3f)
-                val alpha = ObjectAnimator.ofFloat(currentLauncher, View.ALPHA, 1f, 0f)
-
-                AnimatorSet().apply {
-                    playTogether(scaleX, scaleY, alpha)
-                    duration = ANIMATION_DURATION_SHORT
-                    interpolator = DecelerateInterpolator()
-                    addListener(object : AnimatorListenerAdapter() {
-                        override fun onAnimationEnd(animation: Animator) {
-                            stopOverlay()
-                        }
-                    })
-                    start()
-                }
+                animateExit(currentLauncher, toScale = 0.3f) { stopOverlay() }
             }
             else -> stopOverlay()
         }
     }
 
     // --- Helpers ---
-
-    private fun headerButton(label: String, action: () -> Unit): Button = Button(this).apply {
-        text = label
-        textSize = 12f
-        minWidth = 0
-        minimumWidth = 0
-        setPadding(dp(8), dp(4), dp(8), dp(4))
-        setTextColor(getColor(R.color.md_theme_primary))
-        background = GradientDrawable().apply {
-            setColor(getColor(R.color.md_theme_primaryContainer))
-            cornerRadius = dp(16).toFloat()
-        }
-        setOnClickListener { action() }
-    }
 
     private fun overlayParams(
         width: Int,
@@ -518,6 +701,8 @@ class OverlayService : Service() {
 
     private fun stopOverlay() {
         isAnimating = false
+        currentAnimator?.cancel()
+        currentAnimator = null
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -555,13 +740,9 @@ class OverlayService : Service() {
         resources.displayMetrics.heightPixels
     }
 
-    private fun roundedDrawable(color: Int, radiusDp: Int): GradientDrawable = GradientDrawable().apply {
-        setColor(color)
-        cornerRadius = dp(radiusDp).toFloat()
-    }
+    private fun pxToDp(value: Int): Int = (value / resources.displayMetrics.density).roundToInt()
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
-    private fun pxToDp(value: Int): Int = (value / resources.displayMetrics.density).roundToInt()
 
     // --- Drag handling ---
 
@@ -590,8 +771,8 @@ class OverlayService : Service() {
                     val dx = event.rawX - downX
                     val dy = event.rawY - downY
                     moved = moved || (kotlin.math.abs(dx) > dp(4) || kotlin.math.abs(dy) > dp(4))
-                    params.x = (initialX + dx).roundToInt().coerceIn(0, screenWidthPx() - dp(64))
-                    params.y = (initialY + dy).roundToInt().coerceIn(0, screenHeightPx() - dp(64))
+                    params.x = (initialX + dx).roundToInt().coerceIn(0, screenWidthPx() - dp(BUBBLE_SIZE_DP))
+                    params.y = (initialY + dy).roundToInt().coerceIn(0, screenHeightPx() - dp(BUBBLE_SIZE_DP))
                     windowManager.updateViewLayout(view, params)
                     return true
                 }
@@ -607,15 +788,78 @@ class OverlayService : Service() {
         }
     }
 
+    /**
+     * Moves the panel window by dragging the grab handle. The panel is always an absolute
+     * TOP|START window, so dragging is pure x/y math clamped to the screen; the final position
+     * is persisted (in dp) for the next session.
+     */
+    private inner class PanelDragTouchListener : View.OnTouchListener {
+        private var downX = 0f
+        private var downY = 0f
+        private var initialX = 0
+        private var initialY = 0
+        private var moved = false
+
+        override fun onTouch(view: View, event: MotionEvent): Boolean {
+            val params = panelParams ?: return false
+            val panel = panelView ?: return false
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.rawX
+                    downY = event.rawY
+                    initialX = params.x
+                    initialY = params.y
+                    moved = false
+                    return true
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - downX
+                    val dy = event.rawY - downY
+                    if (!moved && kotlin.math.abs(dx) < dp(4) && kotlin.math.abs(dy) < dp(4)) {
+                        return true
+                    }
+                    moved = true
+                    params.x = (initialX + dx).roundToInt()
+                        .coerceIn(0, (screenWidthPx() - params.width).coerceAtLeast(0))
+                    params.y = (initialY + dy).roundToInt()
+                        .coerceIn(0, (screenHeightPx() - params.height).coerceAtLeast(0))
+                    panelX = params.x
+                    panelY = params.y
+                    windowManager.updateViewLayout(panel, params)
+                    return true
+                }
+
+                MotionEvent.ACTION_UP -> {
+                    if (moved) {
+                        uiPrefs.edit()
+                            .putInt(KEY_PANEL_X_DP, pxToDp(params.x))
+                            .putInt(KEY_PANEL_Y_DP, pxToDp(params.y))
+                            .apply()
+                    } else {
+                        view.performClick()
+                    }
+                    return true
+                }
+            }
+            return false
+        }
+    }
+
     companion object {
         const val ACTION_SHOW_LAUNCHER = "com.example.widgetoverlay.action.SHOW_LAUNCHER"
         const val ACTION_SHOW_PANEL = "com.example.widgetoverlay.action.SHOW_PANEL"
         const val ACTION_HIDE = "com.example.widgetoverlay.action.HIDE"
         private const val FOREGROUND_CHANNEL_ID = "active_overlay"
         private const val FOREGROUND_NOTIFICATION_ID = 10
+        private const val BUBBLE_SIZE_DP = 56
 
-        private const val ANIMATION_DURATION_SHORT = 200L
-        private const val ANIMATION_DURATION_MEDIUM = 300L
+        private const val KEY_PANEL_X_DP = "panel_x_dp"
+        private const val KEY_PANEL_Y_DP = "panel_y_dp"
+        private const val SCRIM_ALPHA = 0.5f
+        private const val SCRIM_DURATION = 220L
+        private const val REFRESH_LOADING_MS = 450L
+        private const val REFRESH_SETTLE_MS = 300L
 
         fun intent(context: Context, action: String): Intent = Intent(context, OverlayService::class.java).apply {
             this.action = action
