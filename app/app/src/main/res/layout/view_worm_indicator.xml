@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sizes live here because the library's size setters are protected; colors are applied
+     in code (wormIndicator) so they follow dynamic color roles. -->
+<com.tbuonomo.viewpagerdotsindicator.WormDotsIndicator
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    app:dotsSize="8dp"
+    app:dotsSpacing="4dp"
+    app:dotsCornerRadius="4dp"
+    app:dotsClickable="false" />
