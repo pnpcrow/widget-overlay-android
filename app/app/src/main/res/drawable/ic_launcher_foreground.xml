@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher glyph: widget card with content lines + overlay bubble (2x2 app grid).
+     Authored on a 24-unit grid and scaled into the 66dp adaptive-icon safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="2.4"
+        android:scaleY="2.4"
+        android:translateX="24.3"
+        android:translateY="23.1">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M5.5,4 H12.5 C13.88,4 15,5.12 15,6.5 V13.5 C15,14.88 13.88,16 12.5,16 H5.5 C4.12,16 3,14.88 3,13.5 V6.5 C3,5.12 4.12,4 5.5,4 Z M7.4,7.1 H10.6 C11.1,7.1 11.5,7.5 11.5,8 C11.5,8.5 11.1,8.9 10.6,8.9 H7.4 C6.9,8.9 6.5,8.5 6.5,8 C6.5,7.5 6.9,7.1 7.4,7.1 Z M7.4,11.1 H9.6 C10.1,11.1 10.5,11.5 10.5,12 C10.5,12.5 10.1,12.9 9.6,12.9 H7.4 C6.9,12.9 6.5,12.5 6.5,12 C6.5,11.5 6.9,11.1 7.4,11.1 Z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M12.25,17 a4.75,4.75 0 1 0 9.5,0 a4.75,4.75 0 1 0 -9.5,0 Z M14.75,15.55 a0.8,0.8 0 1 0 1.6,0 a0.8,0.8 0 1 0 -1.6,0 Z M17.65,15.55 a0.8,0.8 0 1 0 1.6,0 a0.8,0.8 0 1 0 -1.6,0 Z M14.75,18.45 a0.8,0.8 0 1 0 1.6,0 a0.8,0.8 0 1 0 -1.6,0 Z M17.65,18.45 a0.8,0.8 0 1 0 1.6,0 a0.8,0.8 0 1 0 -1.6,0 Z" />
+    </group>
+</vector>
