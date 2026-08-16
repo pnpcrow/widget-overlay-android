@@ -37,7 +37,7 @@ import com.example.widgetoverlay.ui.dp
 import com.example.widgetoverlay.ui.roundedRect
 import com.example.widgetoverlay.ui.themeColor
 import com.example.widgetoverlay.ui.tonalIconButton
-import com.example.widgetoverlay.ui.wormIndicator
+import com.example.widgetoverlay.ui.wormIndicatorLoop
 import com.google.android.material.R as MaterialR
 import kotlin.math.roundToInt
 
@@ -262,8 +262,9 @@ class OverlayService : Service() {
         // estimate instead of a fixed size - otherwise tall blank surface shows above and
         // below short widgets.
         val widgetHeights = widgetIds.indices.map { pageHeightDp(it) }
+        val startPage = startIndexOf(widgetIds)
         val panelHeight =
-            (dp(widgetHeights.firstOrNull() ?: DEFAULT_WIDGET_HEIGHT_DP) + dp(PANEL_CHROME_DP))
+            (dp(widgetHeights.getOrElse(startPage) { DEFAULT_WIDGET_HEIGHT_DP }) + dp(PANEL_CHROME_DP))
                 .coerceIn(dp(PANEL_CHROME_DP + MIN_WIDGET_HEIGHT_DP), minOf(dp(520), screenHeight - dp(80)))
 
         // Restore the user's last panel position, clamped to the current screen. The panel is
@@ -341,15 +342,23 @@ class OverlayService : Service() {
         // Widget pager sits directly on the panel surface (no framing card)
         val widgetWidthDp = pxToDp(panelWidth - dp(24))
 
+        val widgetAdapter = WidgetPagerAdapter(widgetIds, widgetWidthDp, widgetHeights)
         val pager = ViewPager2(context).apply {
-            adapter = WidgetPagerAdapter(widgetIds, widgetWidthDp, widgetHeights)
+            adapter = widgetAdapter
             registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
                 override fun onPageSelected(position: Int) {
-                    resizePanelToWidget(position)
+                    val real = realPageOf(position)
+                    persistLastPage(real)
+                    resizePanelToWidget(real)
                 }
             })
         }
+        // Assign the field before the initial setCurrentItem: the first onPageSelected can
+        // fire synchronously, and realPageOf must already see this adapter.
         viewPager = pager
+        // Start inside the middle repetition band with the restored page, so both pager
+        // edges are far away and swiping wraps around endlessly.
+        pager.setCurrentItem(LOOP_REPS / 2 * widgetIds.size + startPage, false)
         content.addView(pager, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             0, 1f
@@ -357,7 +366,7 @@ class OverlayService : Service() {
 
         // Page indicator dots (only if multiple widgets)
         if (hasMultipleWidgets) {
-            pageIndicator = wormIndicator(pager)
+            pageIndicator = wormIndicatorLoop(pager) { widgetAdapter.realCount }
             content.addView(
                 pageIndicator,
                 LinearLayout.LayoutParams(
@@ -435,6 +444,7 @@ class OverlayService : Service() {
     /** Rebuilds the pager adapter in place; the panel window itself is never recreated. */
     private fun rebuildWidgetContent() {
         val pager = viewPager ?: return
+        val oldAdapter = pager.adapter as? WidgetPagerAdapter
         val widthDp = pxToDp(pager.width - dp(12))
 
         val stack = widgetHost.getWidgetStack()
@@ -444,12 +454,45 @@ class OverlayService : Service() {
             stack
         }
         val heights = widgetIds.indices.map { pageHeightDp(it) }
-        // A new adapter resets the pager to page 0; restore the page the user was viewing.
-        val page = pager.currentItem.coerceIn(0, (widgetIds.size - 1).coerceAtLeast(0))
-        pager.adapter = WidgetPagerAdapter(widgetIds, widthDp, heights)
-        pager.setCurrentItem(page, false)
+        // Keep showing the same widget across the rebuild: match by id first, then clamp
+        // the previous real page into the new stack so stack changes never go out of range.
+        val oldReal = realPageOf(pager.currentItem)
+        val oldWidgetId = oldAdapter?.widgetIdAt(oldReal) ?: -1
+        val page = widgetIds.indexOf(oldWidgetId).takeIf { it >= 0 }
+            ?: oldReal.coerceIn(0, (widgetIds.size - 1).coerceAtLeast(0))
+        val newAdapter = WidgetPagerAdapter(widgetIds, widthDp, heights)
+        pager.adapter = newAdapter
+        pager.setCurrentItem(LOOP_REPS / 2 * widgetIds.size + page, false)
+        pageIndicator?.refreshDots()
         resizePanelToWidget(page)
-        // The worm indicator follows the pager's page-change callbacks on its own.
+        // The worm indicator follows page changes via its looping pager proxy.
+    }
+
+    /** Real (non-looped) page index for the looping adapter position. */
+    private fun realPageOf(position: Int): Int {
+        val count = (viewPager?.adapter as? WidgetPagerAdapter)?.realCount ?: 1
+        return ((position % count) + count) % count
+    }
+
+    /**
+     * Page to restore when the panel opens: the last-viewed widget by id, else the last page
+     * index clamped into the current stack (stack changes never reset to 0 unnecessarily).
+     */
+    private fun startIndexOf(widgetIds: List<Int>): Int {
+        if (widgetIds.isEmpty()) return 0
+        val savedId = uiPrefs.getInt(KEY_LAST_WIDGET_ID, -1)
+        val savedIdx = uiPrefs.getInt(KEY_LAST_PAGE, -1)
+        return widgetIds.indexOf(savedId).takeIf { it >= 0 }
+            ?: savedIdx.takeIf { it in widgetIds.indices }
+            ?: 0
+    }
+
+    private fun persistLastPage(real: Int) {
+        val id = (viewPager?.adapter as? WidgetPagerAdapter)?.widgetIdAt(real) ?: return
+        uiPrefs.edit()
+            .putInt(KEY_LAST_WIDGET_ID, id)
+            .putInt(KEY_LAST_PAGE, real)
+            .apply()
     }
 
     /**
@@ -468,7 +511,12 @@ class OverlayService : Service() {
     private fun resizePanelToWidget(position: Int) {
         val params = panelParams ?: return
         val panel = panelView ?: return
-        if (isAnimating) return
+        if (isAnimating) {
+            // The initial page selection can race the panel's enter animation; retry once
+            // the transition guard clears instead of dropping the resize.
+            panel.postDelayed({ resizePanelToWidget(position) }, Design.DURATION_MEDIUM + 100)
+            return
+        }
         val maxByScreen = screenHeightPx() - params.y
         val target = (dp(pageHeightDp(position)) + dp(PANEL_CHROME_DP))
             .coerceIn(dp(PANEL_CHROME_DP + MIN_WIDGET_HEIGHT_DP), maxOf(dp(PANEL_CHROME_DP + MIN_WIDGET_HEIGHT_DP), maxByScreen))
@@ -662,6 +710,11 @@ class OverlayService : Service() {
         private val widgetHeightsDp: List<Int>,
     ) : RecyclerView.Adapter<WidgetPagerAdapter.WidgetViewHolder>() {
 
+        /** Number of real pages (without the looping repetition factor). */
+        val realCount: Int get() = widgetIds.size
+
+        fun widgetIdAt(realPosition: Int): Int = widgetIds.getOrElse(realPosition) { -1 }
+
         inner class WidgetViewHolder(val frame: FrameLayout) : RecyclerView.ViewHolder(frame)
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): WidgetViewHolder {
@@ -678,12 +731,13 @@ class OverlayService : Service() {
             val frame = holder.frame
             frame.removeAllViews()
 
+            val real = ((position % widgetIds.size) + widgetIds.size) % widgetIds.size
             val context = uiContext
-            val heightDp = widgetHeightsDp.getOrElse(position) { DEFAULT_WIDGET_HEIGHT_DP }
+            val heightDp = widgetHeightsDp.getOrElse(real) { DEFAULT_WIDGET_HEIGHT_DP }
             val widgetView = if (widgetIds.size == 1) {
                 widgetHost.createSelectedWidgetView(widgetWidthDp, heightDp)
             } else {
-                widgetHost.createStackWidgetView(position, widgetWidthDp, heightDp)
+                widgetHost.createStackWidgetView(real, widgetWidthDp, heightDp)
             }
 
             if (widgetView == null) {
@@ -706,7 +760,8 @@ class OverlayService : Service() {
             }
         }
 
-        override fun getItemCount(): Int = widgetIds.size
+        override fun getItemCount(): Int =
+            if (widgetIds.size > 1) widgetIds.size * LOOP_REPS else widgetIds.size
     }
 
     // --- Stop with animation ---
@@ -943,6 +998,9 @@ class OverlayService : Service() {
 
         private const val KEY_PANEL_X_DP = "panel_x_dp"
         private const val KEY_PANEL_Y_DP = "panel_y_dp"
+        private const val KEY_LAST_WIDGET_ID = "last_widget_id"
+        private const val KEY_LAST_PAGE = "last_page"
+        private const val LOOP_REPS = 200
         private const val SCRIM_ALPHA = 0.5f
         private const val SCRIM_DURATION = 220L
         private const val REFRESH_LOADING_MS = 450L

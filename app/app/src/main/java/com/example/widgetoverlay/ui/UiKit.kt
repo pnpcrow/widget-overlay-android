@@ -21,6 +21,8 @@ import com.example.widgetoverlay.R
 import com.google.android.material.R as MaterialR
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
+import com.tbuonomo.viewpagerdotsindicator.BaseDotsIndicator
+import com.tbuonomo.viewpagerdotsindicator.OnPageChangeListenerHelper
 import com.tbuonomo.viewpagerdotsindicator.WormDotsIndicator
 import kotlin.math.roundToInt
 
@@ -165,3 +167,55 @@ fun Context.wormIndicator(viewPager: ViewPager2): WormDotsIndicator =
         setDotIndicatorColor(themeColor(MaterialR.attr.colorPrimary))
         attachTo(viewPager)
     }
+
+/**
+ * Worm indicator bound to a looping ViewPager2 (adapter count = real count x repeats).
+ * The proxy reports the REAL count and modulo-mapped positions, so dots and worm stay
+ * in sync while the pager itself scrolls endlessly.
+ */
+fun Context.wormIndicatorLoop(
+    pager: ViewPager2,
+    realCount: () -> Int,
+): WormDotsIndicator =
+    (LayoutInflater.from(this).inflate(R.layout.view_worm_indicator, null) as WormDotsIndicator).apply {
+        setPointsColor(themeColor(MaterialR.attr.colorOutlineVariant))
+        setDotIndicatorColor(themeColor(MaterialR.attr.colorPrimary))
+        this.pager = LoopPagerProxy(pager, realCount)
+    }
+
+private class LoopPagerProxy(
+    private val pager: ViewPager2,
+    private val realCount: () -> Int,
+) : BaseDotsIndicator.Pager {
+
+    private fun mod(value: Int): Int {
+        val m = realCount().coerceAtLeast(1)
+        return ((value % m) + m) % m
+    }
+
+    override val isNotEmpty: Boolean get() = realCount() > 0
+
+    override val isEmpty: Boolean get() = realCount() == 0
+
+    override val currentItem: Int get() = mod(pager.currentItem)
+
+    override val count: Int get() = realCount()
+
+    override fun setCurrentItem(index: Int, smooth: Boolean) {
+        val count = realCount().coerceAtLeast(1)
+        val base = (pager.currentItem / count) * count
+        pager.setCurrentItem(base + ((index % count) + count) % count, smooth)
+    }
+
+    override fun removeOnPageChangeListener() {
+        // The callback is tied to the pager's lifecycle; nothing to detach here.
+    }
+
+    override fun addOnPageChangeListener(helper: OnPageChangeListenerHelper) {
+        pager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+            override fun onPageSelected(position: Int) {
+                helper.onPageScrolled(mod(position), 0f)
+            }
+        })
+    }
+}
