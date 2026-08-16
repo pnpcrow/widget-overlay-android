@@ -496,15 +496,39 @@ class OverlayService : Service() {
     }
 
     /**
-     * Natural height (dp) of the widget at [position]. Measured behavior on-device: widgets
-     * render their minHeight-sized content and center it regardless of allocation, so the
-     * declared minHeight hugs the drawn content far better than launcher cell estimates
-     * (which include grid spacing the widget never fills).
+     * Height (dp) allocated to the widget at [position].
+     *
+     * Sizing rule: non-resizable widgets use their minHeight (the only size they render).
+     * Resizable widgets (minHeight < maxResizeHeight) use the provider's DEFAULT size -
+     * targetCellHeight converted to dp - clamped into [minHeight, maxResizeHeight]: never the
+     * bare minimum (cramped) and never the maximum (the panel would suddenly balloon).
      */
     private fun pageHeightDp(position: Int): Int {
         val info = widgetHost.widgetInfoAt(position)
-        val estimate = info?.minHeight ?: DEFAULT_WIDGET_HEIGHT_DP
+            ?: return DEFAULT_WIDGET_HEIGHT_DP
+        val minHeight = info.minHeight.coerceAtLeast(1)
+        val maxHeight = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            info.maxResizeHeight.takeIf { it > 0 } ?: minHeight
+        } else {
+            minHeight
+        }
+        val defaultHeight = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && info.targetCellHeight > 0) {
+            info.targetCellHeight * cellSizeDp()
+        } else {
+            minHeight
+        }
+        val estimate = if (maxHeight > minHeight) {
+            defaultHeight.coerceIn(minHeight, maxHeight)
+        } else {
+            minHeight
+        }
         return estimate.coerceIn(MIN_WIDGET_HEIGHT_DP, pxToDp(screenHeightPx()) - dp(120))
+    }
+
+    /** Launcher-grid cell height in dp (square-cell approximation, same math as the picker). */
+    private fun cellSizeDp(): Int {
+        val widthDp = pxToDp(screenWidthPx())
+        return ((widthDp - 32) / 4).coerceAtLeast(60)
     }
 
     /** Resizes the panel window to hug the given page's widget height with a smooth transition. */

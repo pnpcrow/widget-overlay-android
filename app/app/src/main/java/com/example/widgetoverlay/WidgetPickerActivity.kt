@@ -229,7 +229,7 @@ class WidgetPickerActivity : AppCompatActivity() {
                         appIcon = appIcon,
                         minWidthDp = minWidth,
                         minHeightDp = minHeight,
-                        minSizeCells = dpToCells(minWidth, minHeight),
+                        minSizeCells = widgetCells(info),
                     )
                 }.sortedBy { it.label }
                 WidgetGroup(
@@ -400,6 +400,22 @@ class WidgetPickerActivity : AppCompatActivity() {
      * The AOSP launcher formula: cells = ceil(minSize / cellSize)
      * where cellSize = (availableWidth - (numCols-1) * gap) / numCols
      */
+    /**
+     * Widget size in home-grid cells. Prefers the provider's declared target cells (API 31+,
+     * exactly what launchers use); the dp fallback is clamped to a realistic phone grid
+     * (max 5 columns x 6 rows) so wide minimum widths never display as 7+ cells.
+     */
+    private fun widgetCells(info: AppWidgetProviderInfo): Pair<Int, Int> {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            (info.targetCellWidth > 0 || info.targetCellHeight > 0)
+        ) {
+            return info.targetCellWidth.coerceIn(1, MAX_GRID_COLUMNS) to
+                info.targetCellHeight.coerceIn(1, MAX_GRID_ROWS)
+        }
+        val (cols, rows) = dpToCells(info.minWidth, info.minHeight)
+        return cols.coerceIn(1, MAX_GRID_COLUMNS) to rows.coerceIn(1, MAX_GRID_ROWS)
+    }
+
     private fun dpToCells(widthDp: Int, heightDp: Int): Pair<Int, Int> {
         // AOSP Launcher3 standard: 4 columns, cell size calculated from screen
         val displayMetrics = resources.displayMetrics
@@ -605,6 +621,8 @@ class WidgetPickerActivity : AppCompatActivity() {
         private const val VIEW_TYPE_HEADER = 0
         private const val VIEW_TYPE_WIDGET = 1
         private const val GRID_SPAN_COUNT = 2
+        private const val MAX_GRID_COLUMNS = 5
+        private const val MAX_GRID_ROWS = 6
 
         private const val VIEW_ID_ICON = 1
         private const val VIEW_ID_LABEL = 2
