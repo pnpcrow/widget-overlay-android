@@ -80,6 +80,9 @@ class OverlayService : Service() {
         val nightMode = newConfig.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
         if (nightMode == lastNightMode) return
         lastNightMode = nightMode
+        // Re-apply the dynamic overlay with the explicit new mode, then rebuild views:
+        // both the overlay variant and the colors resolved into drawables are stale otherwise.
+        AppTheme.themed(this, night = nightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES)
         rebuildForThemeChange()
     }
 
@@ -114,6 +117,9 @@ class OverlayService : Service() {
         }
         startAsForeground()
         widgetHost.startListening()
+        // Re-apply in case the service was created while the resources still carried a
+        // stale uiMode configuration (the overlay variant is baked at apply time).
+        AppTheme.themed(this)
         when (intent?.action ?: ACTION_SHOW_LAUNCHER) {
             ACTION_SHOW_PANEL -> showPanel()
             ACTION_SHOW_LAUNCHER -> showLauncher()

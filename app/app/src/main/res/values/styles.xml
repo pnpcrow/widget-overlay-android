@@ -35,6 +35,10 @@
         <item name="colorOutlineVariant">@color/md_theme_outlineVariant</item>
     </style>
 
-    <!-- Applied to non-activity contexts (overlay service) so dynamic color reaches overlay views -->
-    <style name="ThemeOverlay.WidgetOverlay.DynamicColors" parent="ThemeOverlay.Material3.DynamicColors.DayNight" />
+    <!-- Applied to the overlay service's theme so dynamic color reaches overlay views.
+         The day/night variant is chosen explicitly at apply time (see AppTheme.themed):
+         applyStyle bakes the style's configuration variant, so a single DayNight overlay
+         would keep whatever mode was active when it was first applied. -->
+    <style name="ThemeOverlay.WidgetOverlay.DynamicColors.Day" parent="ThemeOverlay.Material3.DynamicColors.Light" />
+    <style name="ThemeOverlay.WidgetOverlay.DynamicColors.Night" parent="ThemeOverlay.Material3.DynamicColors.Dark" />
 </resources>
