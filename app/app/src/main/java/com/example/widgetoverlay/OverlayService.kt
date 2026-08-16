@@ -272,9 +272,11 @@ class OverlayService : Service() {
         }
         // Single compact chrome row: centered grab handle + actions at the end. Merging the
         // rows and dropping the separate widget-frame card keeps the panel to one surface.
+        // Vertical padding (8dp) stays larger than inter-item gaps (3dp) so content reads as
+        // grouped inside the border instead of stuck to it.
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(4), dp(12), dp(8))
+            setPadding(dp(12), dp(8), dp(12), dp(8))
         }
         container.addView(content, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
@@ -325,7 +327,7 @@ class OverlayService : Service() {
 
         // Widget pager sits directly on the panel surface (no framing card)
         val widgetWidthDp = pxToDp(panelWidth - dp(24))
-        val widgetHeightDp = pxToDp(panelHeight - dp(72))
+        val widgetHeightDp = pxToDp(panelHeight - dp(74))
 
         val pager = ViewPager2(context).apply {
             adapter = WidgetPagerAdapter(widgetIds, widgetWidthDp, widgetHeightDp)
@@ -334,7 +336,7 @@ class OverlayService : Service() {
         content.addView(pager, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             0, 1f
-        ).apply { topMargin = dp(4) })
+        ).apply { topMargin = dp(3) })
 
         // Page indicator dots (only if multiple widgets)
         if (hasMultipleWidgets) {
@@ -346,7 +348,7 @@ class OverlayService : Service() {
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply {
                     gravity = Gravity.CENTER_HORIZONTAL
-                    topMargin = dp(4)
+                    topMargin = dp(3)
                 }
             )
         }
