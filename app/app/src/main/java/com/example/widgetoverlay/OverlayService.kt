@@ -251,7 +251,7 @@ class OverlayService : Service() {
         val screenWidth = screenWidthPx()
         val screenHeight = screenHeightPx()
         val panelWidth = minOf(dp(380), screenWidth - dp(24)).coerceAtLeast(dp(260))
-        val panelHeight = minOf(dp(520), screenHeight - dp(80)).coerceAtLeast(dp(280))
+        val panelHeight = minOf(dp(460), screenHeight - dp(80)).coerceAtLeast(dp(280))
 
         // Restore the user's last panel position, clamped to the current screen. The panel is
         // always an absolute TOP|START window (centered coordinates on first launch) so drag
@@ -274,7 +274,7 @@ class OverlayService : Service() {
         // rows and dropping the separate widget-frame card keeps the panel to one surface.
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(6), dp(12), dp(10))
+            setPadding(dp(12), dp(4), dp(12), dp(8))
         }
         container.addView(content, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
@@ -301,7 +301,7 @@ class OverlayService : Service() {
                 }
             }, FrameLayout.LayoutParams(dp(32), dp(4), Gravity.CENTER))
         }
-        header.addView(handle, FrameLayout.LayoutParams(dp(120), dp(48), Gravity.CENTER))
+        header.addView(handle, FrameLayout.LayoutParams(dp(120), dp(44), Gravity.CENTER))
         val actions = LinearLayout(context).apply {
             gravity = Gravity.CENTER_VERTICAL or Gravity.END
         }
@@ -320,12 +320,12 @@ class OverlayService : Service() {
             Gravity.CENTER_VERTICAL or Gravity.END,
         ))
         content.addView(header, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, dp(48)
+            LinearLayout.LayoutParams.MATCH_PARENT, dp(44)
         ))
 
         // Widget pager sits directly on the panel surface (no framing card)
         val widgetWidthDp = pxToDp(panelWidth - dp(24))
-        val widgetHeightDp = pxToDp(panelHeight - dp(100))
+        val widgetHeightDp = pxToDp(panelHeight - dp(72))
 
         val pager = ViewPager2(context).apply {
             adapter = WidgetPagerAdapter(widgetIds, widgetWidthDp, widgetHeightDp)
@@ -334,7 +334,7 @@ class OverlayService : Service() {
         content.addView(pager, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             0, 1f
-        ).apply { topMargin = dp(6) })
+        ).apply { topMargin = dp(4) })
 
         // Page indicator dots (only if multiple widgets)
         if (hasMultipleWidgets) {
@@ -346,7 +346,7 @@ class OverlayService : Service() {
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply {
                     gravity = Gravity.CENTER_HORIZONTAL
-                    topMargin = dp(6)
+                    topMargin = dp(4)
                 }
             )
         }
