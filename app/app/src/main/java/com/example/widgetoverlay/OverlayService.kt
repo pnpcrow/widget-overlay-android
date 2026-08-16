@@ -58,6 +58,7 @@ class OverlayService : Service() {
     private var panelX = 0
     private var panelY = 0
     private var lastNightMode = Int.MIN_VALUE
+    private var resizeAnimator: android.animation.ValueAnimator? = null
 
     private val uiPrefs by lazy { getSharedPreferences("overlay_ui", Context.MODE_PRIVATE) }
 
@@ -257,7 +258,13 @@ class OverlayService : Service() {
         val screenWidth = screenWidthPx()
         val screenHeight = screenHeightPx()
         val panelWidth = minOf(dp(380), screenWidth - dp(24)).coerceAtLeast(dp(260))
-        val panelHeight = minOf(dp(460), screenHeight - dp(80)).coerceAtLeast(dp(280))
+        // Each widget renders at its natural height, so the panel hugs the current page's
+        // estimate instead of a fixed size - otherwise tall blank surface shows above and
+        // below short widgets.
+        val widgetHeights = widgetIds.indices.map { pageHeightDp(it) }
+        val panelHeight =
+            (dp(widgetHeights.firstOrNull() ?: DEFAULT_WIDGET_HEIGHT_DP) + dp(PANEL_CHROME_DP))
+                .coerceIn(dp(PANEL_CHROME_DP + MIN_WIDGET_HEIGHT_DP), minOf(dp(520), screenHeight - dp(80)))
 
         // Restore the user's last panel position, clamped to the current screen. The panel is
         // always an absolute TOP|START window (centered coordinates on first launch) so drag
@@ -333,10 +340,14 @@ class OverlayService : Service() {
 
         // Widget pager sits directly on the panel surface (no framing card)
         val widgetWidthDp = pxToDp(panelWidth - dp(24))
-        val widgetHeightDp = pxToDp(panelHeight - dp(74))
 
         val pager = ViewPager2(context).apply {
-            adapter = WidgetPagerAdapter(widgetIds, widgetWidthDp, widgetHeightDp)
+            adapter = WidgetPagerAdapter(widgetIds, widgetWidthDp, widgetHeights)
+            registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+                override fun onPageSelected(position: Int) {
+                    resizePanelToWidget(position)
+                }
+            })
         }
         viewPager = pager
         content.addView(pager, LinearLayout.LayoutParams(
@@ -425,7 +436,6 @@ class OverlayService : Service() {
     private fun rebuildWidgetContent() {
         val pager = viewPager ?: return
         val widthDp = pxToDp(pager.width - dp(12))
-        val heightDp = pxToDp(pager.height - dp(12))
 
         val stack = widgetHost.getWidgetStack()
         val widgetIds = if (stack.isEmpty()) {
@@ -433,11 +443,50 @@ class OverlayService : Service() {
         } else {
             stack
         }
+        val heights = widgetIds.indices.map { pageHeightDp(it) }
         // A new adapter resets the pager to page 0; restore the page the user was viewing.
         val page = pager.currentItem.coerceIn(0, (widgetIds.size - 1).coerceAtLeast(0))
-        pager.adapter = WidgetPagerAdapter(widgetIds, widthDp, heightDp)
+        pager.adapter = WidgetPagerAdapter(widgetIds, widthDp, heights)
         pager.setCurrentItem(page, false)
+        resizePanelToWidget(page)
         // The worm indicator follows the pager's page-change callbacks on its own.
+    }
+
+    /**
+     * Natural height (dp) of the widget at [position]. Measured behavior on-device: widgets
+     * render their minHeight-sized content and center it regardless of allocation, so the
+     * declared minHeight hugs the drawn content far better than launcher cell estimates
+     * (which include grid spacing the widget never fills).
+     */
+    private fun pageHeightDp(position: Int): Int {
+        val info = widgetHost.widgetInfoAt(position)
+        val estimate = info?.minHeight ?: DEFAULT_WIDGET_HEIGHT_DP
+        return estimate.coerceIn(MIN_WIDGET_HEIGHT_DP, pxToDp(screenHeightPx()) - dp(120))
+    }
+
+    /** Resizes the panel window to hug the given page's widget height with a smooth transition. */
+    private fun resizePanelToWidget(position: Int) {
+        val params = panelParams ?: return
+        val panel = panelView ?: return
+        if (isAnimating) return
+        val maxByScreen = screenHeightPx() - params.y
+        val target = (dp(pageHeightDp(position)) + dp(PANEL_CHROME_DP))
+            .coerceIn(dp(PANEL_CHROME_DP + MIN_WIDGET_HEIGHT_DP), maxOf(dp(PANEL_CHROME_DP + MIN_WIDGET_HEIGHT_DP), maxByScreen))
+        val current = params.height
+        if (kotlin.math.abs(target - current) <= dp(6)) return
+        resizeAnimator?.cancel()
+        resizeAnimator = android.animation.ValueAnimator.ofInt(current, target).apply {
+            duration = Design.DURATION_MEDIUM
+            interpolator = Design.EASE_DECELERATE
+            addUpdateListener { animation ->
+                params.height = animation.animatedValue as Int
+                try {
+                    windowManager.updateViewLayout(panel, params)
+                } catch (_: IllegalArgumentException) {
+                }
+            }
+            start()
+        }
     }
 
     // --- Scrim ---
@@ -610,7 +659,7 @@ class OverlayService : Service() {
     private inner class WidgetPagerAdapter(
         private val widgetIds: List<Int>,
         private val widgetWidthDp: Int,
-        private val widgetHeightDp: Int,
+        private val widgetHeightsDp: List<Int>,
     ) : RecyclerView.Adapter<WidgetPagerAdapter.WidgetViewHolder>() {
 
         inner class WidgetViewHolder(val frame: FrameLayout) : RecyclerView.ViewHolder(frame)
@@ -630,10 +679,11 @@ class OverlayService : Service() {
             frame.removeAllViews()
 
             val context = uiContext
+            val heightDp = widgetHeightsDp.getOrElse(position) { DEFAULT_WIDGET_HEIGHT_DP }
             val widgetView = if (widgetIds.size == 1) {
-                widgetHost.createSelectedWidgetView(widgetWidthDp, widgetHeightDp)
+                widgetHost.createSelectedWidgetView(widgetWidthDp, heightDp)
             } else {
-                widgetHost.createStackWidgetView(position, widgetWidthDp, widgetHeightDp)
+                widgetHost.createStackWidgetView(position, widgetWidthDp, heightDp)
             }
 
             if (widgetView == null) {
@@ -885,6 +935,11 @@ class OverlayService : Service() {
         private const val FOREGROUND_CHANNEL_ID = "active_overlay"
         private const val FOREGROUND_NOTIFICATION_ID = 10
         private const val BUBBLE_SIZE_DP = 56
+
+        /** Fixed vertical chrome around the widget pager: paddings + header row + gaps + indicator. */
+        private const val PANEL_CHROME_DP = 74
+        private const val DEFAULT_WIDGET_HEIGHT_DP = 300
+        private const val MIN_WIDGET_HEIGHT_DP = 60
 
         private const val KEY_PANEL_X_DP = "panel_x_dp"
         private const val KEY_PANEL_Y_DP = "panel_y_dp"

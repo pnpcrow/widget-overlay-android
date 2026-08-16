@@ -122,6 +122,15 @@ class WidgetHostController(private val context: Context) {
         return appWidgetManager.getAppWidgetInfo(id)
     }
 
+    /**
+     * Info of the widget shown at [position]; falls back to the selected widget when the
+     * stack is empty (single-widget setups). Used to estimate each widget's natural height.
+     */
+    fun widgetInfoAt(position: Int): android.appwidget.AppWidgetProviderInfo? {
+        val id = repository.getWidgetAtStackIndex(position) ?: selectedWidgetId() ?: return null
+        return appWidgetManager.getAppWidgetInfo(id)
+    }
+
     fun removeWidgetAtStackIndex(index: Int) {
         stopListening()
         val id = repository.getWidgetAtStackIndex(index) ?: return
