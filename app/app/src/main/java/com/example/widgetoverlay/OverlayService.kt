@@ -270,15 +270,18 @@ class OverlayService : Service() {
             background = panelBackground()
             elevation = dp(16).toFloat()
         }
+        // Single compact chrome row: centered grab handle + actions at the end. Merging the
+        // rows and dropping the separate widget-frame card keeps the panel to one surface.
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(8), dp(4), dp(8), dp(12))
+            setPadding(dp(12), dp(6), dp(12), dp(10))
         }
         container.addView(content, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
         ))
 
+        val header = FrameLayout(context)
         // Drag handle: drag to move the panel, tap to minimize
         val handle = FrameLayout(context).apply {
             isClickable = true
@@ -298,53 +301,40 @@ class OverlayService : Service() {
                 }
             }, FrameLayout.LayoutParams(dp(32), dp(4), Gravity.CENTER))
         }
-        content.addView(handle, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, dp(36)
-        ))
-
-        // Header: actions aligned to the end (no title - the widget itself identifies the panel)
-        val header = LinearLayout(context).apply {
+        header.addView(handle, FrameLayout.LayoutParams(dp(120), dp(48), Gravity.CENTER))
+        val actions = LinearLayout(context).apply {
             gravity = Gravity.CENTER_VERTICAL or Gravity.END
         }
-        val refreshButton = context.tonalIconButton(R.drawable.ic_refresh, getString(R.string.refresh)) {
+        actions.addView(context.tonalIconButton(R.drawable.ic_refresh, getString(R.string.refresh)) {
             refreshPanelContent()
-        }
-        header.addView(refreshButton, LinearLayout.LayoutParams(dp(40), dp(40)).apply {
-            marginEnd = dp(4)
-        })
-        header.addView(
+        }, LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(4) })
+        actions.addView(
             context.tonalIconButton(R.drawable.ic_remove, getString(R.string.minimize)) {
                 showLauncher()
             },
             LinearLayout.LayoutParams(dp(40), dp(40)),
         )
-        content.addView(header)
+        header.addView(actions, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            Gravity.CENTER_VERTICAL or Gravity.END,
+        ))
+        content.addView(header, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dp(48)
+        ))
 
-        // Widget frame
-        val widgetWidthDp = pxToDp(panelWidth - dp(28))
-        val widgetHeightDp = pxToDp(panelHeight - dp(144))
+        // Widget pager sits directly on the panel surface (no framing card)
+        val widgetWidthDp = pxToDp(panelWidth - dp(24))
+        val widgetHeightDp = pxToDp(panelHeight - dp(100))
 
         val pager = ViewPager2(context).apply {
             adapter = WidgetPagerAdapter(widgetIds, widgetWidthDp, widgetHeightDp)
         }
         viewPager = pager
-        content.addView(FrameLayout(context).apply {
-            setPadding(dp(6), dp(6), dp(6), dp(6))
-            background = roundedRect(
-                themeColor(MaterialR.attr.colorSurfaceContainerLow),
-                Design.RADIUS_MEDIUM,
-            )
-            addView(
-                pager,
-                FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT
-                )
-            )
-        }, LinearLayout.LayoutParams(
+        content.addView(pager, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             0, 1f
-        ).apply { topMargin = dp(12) })
+        ).apply { topMargin = dp(6) })
 
         // Page indicator dots (only if multiple widgets)
         if (hasMultipleWidgets) {
@@ -356,7 +346,7 @@ class OverlayService : Service() {
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply {
                     gravity = Gravity.CENTER_HORIZONTAL
-                    topMargin = dp(10)
+                    topMargin = dp(6)
                 }
             )
         }
