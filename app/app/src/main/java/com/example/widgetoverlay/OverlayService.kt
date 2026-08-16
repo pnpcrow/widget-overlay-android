@@ -57,6 +57,7 @@ class OverlayService : Service() {
     private var pageIndicator: com.tbuonomo.viewpagerdotsindicator.WormDotsIndicator? = null
     private var panelX = 0
     private var panelY = 0
+    private var lastNightMode = Int.MIN_VALUE
 
     private val uiPrefs by lazy { getSharedPreferences("overlay_ui", Context.MODE_PRIVATE) }
 
@@ -70,7 +71,40 @@ class OverlayService : Service() {
         widgetHost = WidgetHostController(this)
         // Apply dynamic colors to this service's theme once; uiContext resolves roles from it.
         AppTheme.themed(this)
+        lastNightMode = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
         createNotificationChannels()
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val nightMode = newConfig.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
+        if (nightMode == lastNightMode) return
+        lastNightMode = nightMode
+        rebuildForThemeChange()
+    }
+
+    /**
+     * Overlay views resolve theme colors into drawables at build time, so a system
+     * light/dark switch leaves them stale. Recreates the currently visible surface
+     * (add-first-then-remove, same as transitions) with the new palette.
+     */
+    private fun rebuildForThemeChange() {
+        currentAnimator?.cancel()
+        val panel = panelView
+        if (panel != null) {
+            panelView = null
+            viewPager = null
+            pageIndicator = null
+            addPanel(animate = false)
+            panelView?.post { removeViewSafely(panel) }
+            return
+        }
+        val launcher = launcherView
+        if (launcher != null) {
+            launcherView = null
+            addLauncher(animate = false)
+            launcherView?.post { removeViewSafely(launcher) }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
