@@ -11,6 +11,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -71,13 +72,11 @@ class MainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         if (previewVisible && widgetHost.hasValidWidget()) {
-            widgetHost.startListening()
             renderInAppPreview()
         }
     }
 
     override fun onStop() {
-        if (previewVisible) widgetHost.stopListening()
         super.onStop()
     }
 
@@ -107,7 +106,6 @@ class MainActivity : AppCompatActivity() {
             refreshUi()
             if (widgetHost.hasValidWidget()) {
                 previewVisible = true
-                widgetHost.startListening()
                 renderInAppPreview()
             }
         }
@@ -244,7 +242,6 @@ class MainActivity : AppCompatActivity() {
         val launcherBtn = tonalButton(getString(R.string.show_launcher)) { showOverlayLauncher() }
         val inAppBtn = outlinedButton(getString(R.string.open_in_app)) {
             previewVisible = true
-            widgetHost.startListening()
             renderInAppPreview()
             refreshUi(getString(R.string.in_app_preview_opened))
         }
@@ -334,15 +331,6 @@ class MainActivity : AppCompatActivity() {
     private fun renderInAppPreview() {
         previewContainer.removeAllViews()
 
-        // Ensure host is listening before creating view
-        widgetHost.startListening()
-
-        // Calculate preview size based on container
-        val containerWidth = previewContainer.width.takeIf { it > 0 } ?: dp(340)
-        val containerHeight = previewContainer.height.takeIf { it > 0 } ?: dp(250)
-        val widgetWidthDp = pxToDp(containerWidth - dp(16))
-        val widgetHeightDp = pxToDp(containerHeight - dp(16))
-
         val stack = widgetHost.getWidgetStack()
         // If stack is empty, use selected widget ID
         val widgetIds = if (stack.isEmpty()) {
@@ -358,61 +346,95 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (widgetIds.size == 1) {
-            // Single widget - show directly
-            val widgetView = widgetHost.createSelectedWidgetView(widthDp = widgetWidthDp, heightDp = widgetHeightDp)
-            if (widgetView == null) {
-                previewContainer.addView(unavailableWidgetText())
-            } else {
-                previewContainer.addView(widgetView, FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                ))
-            }
-        } else {
-            // Multiple widgets - use ViewPager2 with indicator
-            val contentLayout = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER
-            }
-
-            val viewPager = ViewPager2(this).apply {
-                adapter = PreviewWidgetPagerAdapter(widgetIds, widgetWidthDp, widgetHeightDp)
-                // Restore page position
-                setCurrentItem(currentPreviewPage, false)
-            }
-            contentLayout.addView(viewPager, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0, 1f
-            ))
-
-            // Page indicator below ViewPager (worm indicator follows the pager on its own)
-            val indicator = wormIndicator(viewPager)
-            viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
-                override fun onPageSelected(position: Int) {
-                    currentPreviewPage = position
-                    if (::widgetNameText.isInitialized) {
-                        widgetHost.getStackWidgetLabel(position)?.let { widgetNameText.text = it }
-                    }
-                }
-            })
-            contentLayout.addView(
-                indicator,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    gravity = Gravity.CENTER_HORIZONTAL
-                    topMargin = dp(12)
-                    bottomMargin = dp(12)
-                }
-            )
-
-            previewContainer.addView(contentLayout, FrameLayout.LayoutParams(
+            // Single widget - show its provider preview directly
+            val image = createPreviewImageView(widgetIds.first())
+            previewContainer.addView(image, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT,
             ))
+            return
+        }
+
+        // Multiple widgets - pager over provider previews with indicator.
+        // The main screen intentionally renders only provider preview images: live
+        // RemoteViews here would set size options on the same widget ids the overlay
+        // displays, making the two surfaces fight over each widget's shape and size.
+        val contentLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+        }
+
+        val viewPager = ViewPager2(this).apply {
+            adapter = PreviewImagePagerAdapter(widgetIds)
+            // Restore page position
+            setCurrentItem(currentPreviewPage.coerceIn(0, widgetIds.size - 1), false)
+        }
+        contentLayout.addView(viewPager, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            0, 1f
+        ))
+
+        // Page indicator below ViewPager (worm indicator follows the pager on its own)
+        val indicator = wormIndicator(viewPager)
+        viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+            override fun onPageSelected(position: Int) {
+                currentPreviewPage = position
+                if (::widgetNameText.isInitialized) {
+                    widgetHost.getStackWidgetLabel(position)?.let { widgetNameText.text = it }
+                }
+            }
+        })
+        contentLayout.addView(
+            indicator,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                topMargin = dp(12)
+                bottomMargin = dp(12)
+            }
+        )
+
+        previewContainer.addView(contentLayout, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+        ))
+    }
+
+    /** Provider preview image for the widget, falling back to its app icon. */
+    private fun createPreviewImageView(widgetId: Int): ImageView {
+        val preview = previewDrawableFor(widgetId) ?: icAppsFallback()
+        return ImageView(this).apply {
+            setImageDrawable(preview)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setPadding(dp(12), dp(12), dp(12), dp(12))
         }
     }
+
+    private fun previewDrawableFor(widgetId: Int): android.graphics.drawable.Drawable? {
+        val stack = widgetHost.getWidgetStack()
+        val index = if (stack.isEmpty()) 0 else stack.indexOf(widgetId).takeIf { it >= 0 } ?: 0
+        val info = widgetHost.widgetInfoAt(index) ?: return null
+        val providerPreview = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                info.loadPreviewImage(this, resources.displayMetrics.densityDpi)
+            } else null
+        } catch (_: Exception) {
+            null
+        }
+        if (providerPreview != null) return providerPreview
+        return try {
+            packageManager.getApplicationIcon(info.provider.packageName)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun icAppsFallback(): android.graphics.drawable.Drawable =
+        androidx.core.content.ContextCompat.getDrawable(this, R.drawable.ic_apps)!!.also {
+            it.setTint(themeColor(MaterialR.attr.colorOnSurfaceVariant))
+        }
 
     private fun unavailableWidgetText(): TextView = TextView(this).apply {
         text = getString(R.string.widget_not_available)
@@ -420,56 +442,30 @@ class MainActivity : AppCompatActivity() {
         setTextColor(themeColor(MaterialR.attr.colorOnSurfaceVariant))
     }
 
-    private fun pxToDp(px: Int): Int {
-        return (px / resources.displayMetrics.density).toInt()
-    }
-
-    // ViewPager2 Adapter for preview
-    private inner class PreviewWidgetPagerAdapter(
+    // Pager adapter over static provider preview images (no live RemoteViews on this screen).
+    private inner class PreviewImagePagerAdapter(
         private val widgetIds: List<Int>,
-        private val widgetWidthDp: Int,
-        private val widgetHeightDp: Int,
-    ) : RecyclerView.Adapter<PreviewWidgetPagerAdapter.WidgetViewHolder>() {
+    ) : RecyclerView.Adapter<PreviewImagePagerAdapter.PreviewViewHolder>() {
 
-        inner class WidgetViewHolder(val frame: FrameLayout) : RecyclerView.ViewHolder(frame)
+        inner class PreviewViewHolder(val image: ImageView) : RecyclerView.ViewHolder(image)
 
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): WidgetViewHolder {
-            val frame = FrameLayout(this@MainActivity).apply {
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PreviewViewHolder =
+            PreviewViewHolder(ImageView(this@MainActivity).apply {
+                scaleType = ImageView.ScaleType.FIT_CENTER
                 layoutParams = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
-            }
-            return WidgetViewHolder(frame)
-        }
+                setPadding(dp(12), dp(12), dp(12), dp(12))
+            })
 
-        override fun onBindViewHolder(holder: WidgetViewHolder, position: Int) {
-            val frame = holder.frame
-            frame.removeAllViews()
-
-            val widgetView = if (widgetIds.size == 1) {
-                widgetHost.createSelectedWidgetView(widgetWidthDp, widgetHeightDp)
-            } else {
-                widgetHost.createStackWidgetView(position, widgetWidthDp, widgetHeightDp)
-            }
-
-            if (widgetView == null) {
-                frame.addView(
-                    unavailableWidgetText(),
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT
-                )
-            } else {
-                frame.addView(
-                    widgetView,
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT
-                )
-            }
+        override fun onBindViewHolder(holder: PreviewViewHolder, position: Int) {
+            holder.image.setImageDrawable(previewDrawableFor(widgetIds[position]) ?: icAppsFallback())
         }
 
         override fun getItemCount(): Int = widgetIds.size
     }
+
 
     /** Label of the widget currently shown on the preview pager (falls back to the selection). */
     private fun currentPreviewWidgetLabel(): String? {
